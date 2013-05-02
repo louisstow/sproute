@@ -1,0 +1,3 @@
+{get /data/post/id/{param.id} as post}
+<h1>{post.title}</h1>
+<div>{post.body}</div>

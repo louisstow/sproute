@@ -1,0 +1,22 @@
+<html>
+	
+	<ul>
+	{each list as item, i}
+		<li>
+			<strong>{i}</strong>
+			{if item.type eq Page}
+				{#item.text}
+			{/if}
+			{if item.type eq Image}
+				<img src="{#item.text}" />
+			{/if}
+			{if item.type eq Quote}
+				{item.quote} <em>--{item.source}</em>
+			{/if}
+		</li>
+	{/each}
+	</ul>
+	{#html}
+
+	{#blah}
+</html>

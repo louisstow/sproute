@@ -1,0 +1,6 @@
+{
+	"models": "models",
+	"views": "views",
+	"controller": "controller",
+	"extension": "sprt"
+}

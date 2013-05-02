@@ -5,11 +5,9 @@
   "version": "0.0.1",
   "dependencies": {
     "express": "3.0.0",
-    "jade": "0.27.6",
     "ff": "0.0.18",
-	"mustache": "0.7.2",
     "underscore": "1.4.3",
-	"mongoose": "3.5.4",
-	"redis": "0.8.2"
+    "pg": "1.1.0",
+    "redis": "0.8.2"
   }
 }

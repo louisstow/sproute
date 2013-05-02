@@ -1,0 +1,19 @@
+FATAL:  data directory "/usr/local/var/postgres" has group or world access
+DETAIL:  Permissions should be u=rwx (0700).
+LOG:  database system was shut down at 2013-03-08 15:35:25 NZDT
+LOG:  database system is ready to accept connections
+LOG:  autovacuum launcher started
+FATAL:  database "louis" does not exist
+FATAL:  role "postgres" does not exist
+ERROR:  syntax error at or near "$1" at character 13
+STATEMENT:  INSERT INTO $1 VALUES ($2, $3, $4)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thing text, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thing text, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 13
+STATEMENT:  INSERT INTO $1 VALUES ($2, $3, $4)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thing text, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 13
+STATEMENT:  INSERT INTO $1 VALUES ($2, $3, $4)
