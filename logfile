@@ -17,3 +17,49 @@ ERROR:  syntax error at or near "$1" at character 28
 STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thing text, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
 ERROR:  syntax error at or near "$1" at character 13
 STATEMENT:  INSERT INTO $1 VALUES ($2, $3, $4)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "$1" at character 28
+STATEMENT:  CREATE TABLE IF NOT EXISTS $1 (thingID unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "-" at character 33
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello-thing (thingID serial PRIMARY KEY, thing text)
+ERROR:  syntax error at or near "-" at character 33
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello-data (thingID unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "integer" at character 57
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello_data (thingID unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+LOG:  could not send data to client: Broken pipe
+FATAL:  connection to client lost
+ERROR:  syntax error at or near "PRIMARY" at character 89
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello_data (thingID integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "PRIMARY" at character 69
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello_thing (thingID serial, thing text) PRIMARY KEY (thingID)
+ERROR:  syntax error at or near "PRIMARY" at character 89
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello_data (thingID integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "PRIMARY" at character 69
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello_thing (thingID serial, thing text) PRIMARY KEY (thingID)
+ERROR:  syntax error at or near "PRIMARY" at character 89
+STATEMENT:  CREATE TABLE IF NOT EXISTS hello_data (thingID integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)
+ERROR:  syntax error at or near "$1" at character 13
+STATEMENT:  INSERT INTO $1 VALUES (DEFAULT, $2) RETURNING thingID
+ERROR:  column "thing" does not exist at character 81
+STATEMENT:  SELECT * FROM hello_data WHERE thingID IN (SELECT thingID FROM hello_data WHERE thing = $1)

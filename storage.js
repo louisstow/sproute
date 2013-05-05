@@ -1,87 +1,77 @@
-var pg = require("pg");
+var mongo = require("mongodb");
 var ff = require("ff");
 
-var conString = "pg://louis:@localhost/sproute";
-
-function Storage (app) {
-	this.app = app;
-}
-
-/**
-* Create the thing/data structure for
-* the app.
-*/
-Storage.prototype.initDatabase = function (next) {
-	ff(function () {
-		Storage.query("CREATE TABLE IF NOT EXISTS $1 (thing unsigned integer, thingKey text, thingValue text) PRIMARY KEY (thingID, thingKey)", [
-			this.app + "-data"
-		], this.slot());	
-	}).cb(next);
+var HOST = "localhost";
+var PORT = 27017;
+var OPTS = {
+	w: 1,
+	capped: true,
+	size: 5000000 //5,000,000 byes = 5MB
 };
 
-/**
-* Get all rows from a thing.
-*/
-Storage.prototype.getRows = function (table, next) {
-	ff(function () {
-		Storage.query("SELECT * FROM $1 WHERE thing = $2", [
-			this.app + "-data",
-			table
-		], this.slot());
-	}).cb(next);
-}
+function Storage (app, structure, server) {
+	this.app = app;
+	this.db = new mongo.Db(app, new mongo.Server(HOST, PORT), OPTS);
 
-/**
-* Get a row for a thing
-*/
-Storage.prototype.getRow = function (table, field, value, next) {
-	ff(function () {
-		Storage.query("SELECT * FROM $1 WHERE thing = $2 AND $3 = $4", [
-			this.app + "-data",
-			table,
-			field,
-			value
-		], this.slot());
-	}).cb(next);
-}
+	var self = this;
+	this.db.open(function (err, db) {
+		//log the result
+		console.log(
+			err ? "Error connecting to" : "Connected to", 
+			app, "on", HOST + ":" + PORT
+		);
 
-/**
-* Add a row
-*/
-Storage.prototype.addRow = function (table, attrs, next) {
-	var app = this.app;
-
-	ff(function () {
-		var sql = "INSERT INTO $1 VALUES ";
-		var insql = [];
-		var idx = 2;
-		var data = [app + "-data"];
-
-		for (var field in attrs) {
-			data.push(table);
-			data.push(field);
-			data.push(attrs[field]);
-
-			insql.push("($" + (idx++) + ", $" + (idx++) + ", $" + (idx++) + ")");
+		if (err) {
+			return console.error(err);
 		}
 
-		sql += insql.join(",");
-		console.log(sql, data, table, attrs)
+		self.onready && self.onready.call(self);
+		for (var table in structure) {
+			db.createCollection(table, OPTS, function () {
+				console.log("Collection created");
+			});
+		}
+	});
 
-		Storage.query(sql, data, this.slot());
-	}).cb(next);
+	this.db.on("error", function () {
+		console.error(arguments)
+	});
 }
 
-//create a wrapper query method to handle
-//pooled connections.
-Storage.query = function (query, args, cb) {
-    pg.connect(conString, function (err, client, done) {
-        client.query(query, args, function () {
-        	cb && cb.apply(client, arguments);
-        	done();
-        });
-    });
+Storage.prototype.getRows = function (table, next) {
+	this.db[table].find(next);
 };
+
+Storage.prototype.addRow = function (table, data, next) {
+	this.db[table].insert(data, next);
+};
+
+Storage.prototype.get = function (url, next) {
+	var parts = url.split("/");
+
+	//trim uneeded parts of the request
+	if (parts[0] == '') { parts.splice(0, 1); }
+	if (parts[parts.length - 1] == '') { parts.splice(parts.length - 1, 1); }
+	if (parts[0] == 'data') { parts.splice(0, 1); }
+
+	var table = parts[0];
+	var field = parts[1];
+	var value = parts[2];
+
+	//3 parts means single item
+	if (parts.length === 3) {
+		var query = {};
+		query[field] = value;
+
+		this.db.collection(table).find(query, next);
+	}
+	//1 part means list data 
+	else if (parts.length === 1) {
+		
+		this.db.collection(table).find({}).toArray(next);
+	}
+	console.log(parts)
+}
 
 Storage.init = function (app) {
 	return new Storage(app);

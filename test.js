@@ -1,9 +1,8 @@
-var storage = require("./storage").init("hello");
+var storage = require("./storage").init("myblog");
+var _ = require("underscore");
 
-storage.initDatabase();
-
-storage.addRow("post", {
-	title: "fuck"
-}, function () {
-	console.log("WHAT AM I DOING", arguments);
-});
+storage.onready = function () {
+	this.get("data/posts", function (err, q) {
+		console.log("QUERY", q)
+	})
+};

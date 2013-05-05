@@ -21,15 +21,29 @@ function escapeHtml (string) {
     });
 }
 
-exports.toJSON = function (adt) {
-    return JSON.stringify(adt, null, '\t');
+var types = {
+    "VAR": "var",
+    "CONDITION": "condition",
+    "LOOP": "loop"
+};
+
+function Greenhouse () {
+    //save compile errors
+    this.compileErrors = [];
+    this.isError = false;
+
+    //allow hooks into the template language
+    this.hooks = {};
+
+    this.pieces = [];
+
+    this.paused = false;
+    this.state = null;
 }
 
-//global compiled variable
-//due to easier recursion handling
-var compiled = "";
-exports.compileErrors = [];
-exports.isError = false;
+Greenhouse.toJSON = function (adt) {
+    return JSON.stringify(adt, null, '\t');
+}
 
 /**
 * Parse template char by char
@@ -39,29 +53,25 @@ exports.isError = false;
     * save the start and end char points in template
 * look for }
 */
-exports.render = function (template, data) {
-    compiled = "";
-    exports.compileErrors.length = 0;
+Greenhouse.prototype.render = function (template, data, hooks) {
+    this.compileErrors.length = 0;
+
+    if (hooks) { this.hooks = hooks; }
 
     //tokenize and set error flag
-    var tokens = tokenize(template);
-    exports.isError = !!exports.compileErrors.length;
+    var tokens = this.tokenize(template);
+    this.isError = !!this.compileErrors.length;
+
+    this.data = data;
     
-    if (exports.isError) {
+    if (this.isError) {
         console.log(exports.compileErrors);
         return;
     }
 
-    link(template, tokens, data, 0);
-
-    return pieces.join("");
+    this.link(template, tokens, 0);
 }
 
-var types = {
-    "VAR": "var",
-    "CONDITION": "condition",
-    "LOOP": "loop"
-};
 
 function getLineFromIndex (template, index) {
     var prevLineBreak = template.lastIndexOf("\n", index) + 1;
@@ -86,7 +96,7 @@ function getLineFromIndex (template, index) {
     {type: "condition", start: 6, end: 20, t: [], f: []}
 * ]
 */
-function tokenize (template) {
+Greenhouse.prototype.tokenize = function (template) {
     //flags to keep track of
     //open expressions
     var openTag = -1;
@@ -104,7 +114,7 @@ function tokenize (template) {
         if (char === '{') {
             //already open
             if (openTag !== -1) {
-                exports.compileErrors.push("Tag already opened at `" + openTag + "`");
+                this.compileErrors.push("Tag already opened at `" + openTag + "`");
                 getLineFromIndex(template, openTag);
                 return;
             }
@@ -115,7 +125,7 @@ function tokenize (template) {
         //closedTag
         if (char === '}') {
             if (openTag === -1) {
-                exports.compileErrors.push("Tag not opened at" + idx);
+                this.compileErrors.push("Tag not opened at" + idx);
                 getLineFromIndex(template, idx);
                 return;
             }
@@ -126,8 +136,15 @@ function tokenize (template) {
             var token =  {};
             parent.push(token);
 
+            var keyword = expression.split(" ")[0].toLowerCase();
+            if (this.hooks[keyword]) {
+                token.type = keyword;
+                token.expr = expression.substr(keyword.length).trim();
+                token.start = openTag;
+                token.end = idx;
+            }
             //a conditional statement
-            if (expression.substr(0, 2).toLowerCase() === "if") {
+            else if (expression.substr(0, 2).toLowerCase() === "if") {
                 token.type = types.CONDITION;
                 token.expr = expression.substr(3);
                 token.startTrue = idx + 1;
@@ -225,7 +242,7 @@ function tokenize (template) {
     }
 
     if (openTag !== -1) {
-        exports.compileErrors.push("Tag not closed at " + openTag);
+        this.compileErrors.push("Tag not closed at " + openTag);
         getLineFromIndex(template, openTag);
         return;
     }
@@ -238,9 +255,7 @@ function tokenize (template) {
 * 2. When rendering placeholder... do something
 * 3. 
 */
-var pieces = [];
-
-function extractDots (line, data) {
+Greenhouse.extractDots = function (line, data) {
     if (line.indexOf(".") === -1) {
         return data[line];
     }
@@ -252,17 +267,35 @@ function extractDots (line, data) {
 
         data
     );
+};
+
+Greenhouse.prototype.pause = function () {
+    this.paused = true;
 }
 
-function link (template, adt, data, start) {
-    var originalStart = start;
+Greenhouse.prototype.resume = function () {
+    this.paused = false;
+    console.log(this.state)
+    this.link(
+        this.state.template,
+        this.state.adt,
+        this.state.start,
+        this.state.i
+    ); 
 
-    for (var i = 0; i < adt.length; ++i) {
+    this.state = null;
+}
+
+Greenhouse.prototype.link = function (template, adt, start, i) {
+    var originalStart = start;
+    var originalI = i;
+
+    for (i = i || 0; i < adt.length; ++i) {
         var block = adt[i];
 
         //skip if an empty block
         if (block.skipFrom) {
-            pieces.push(template.substring(start, block.skipFrom));
+            this.pieces.push(template.substring(start, block.skipFrom));
             start = block.skipTo;
             continue; 
         }
@@ -282,11 +315,11 @@ function link (template, adt, data, start) {
                     escape = false;
                 }
 
-                var value = extractDots(placeholder, data);
+                var value = Greenhouse.extractDots(placeholder, this.data);
                 if (escape) { value = escapeHtml(value); }
             
-                pieces.push(template.substring(start, block.start - 1))
-                if (value) { pieces.push(value); }
+                this.pieces.push(template.substring(start, block.start - 1))
+                if (value) { this.pieces.push(value); }
 
                 start = block.end + 1;
 
@@ -296,12 +329,12 @@ function link (template, adt, data, start) {
             * {if: <var> <operator> <value>}
             */
             case types.CONDITION:
-                pieces.push(template.substring(start, block.start));
+                this.pieces.push(template.substring(start, block.start));
 
                 var result = false;
 
                 
-                var thing = extractDots(block.thing, data);
+                var thing = Greenhouse.extractDots(block.thing, this.data);
                 var operator = block.operator;
                 var value = block.value;
 
@@ -343,11 +376,11 @@ function link (template, adt, data, start) {
                 //true, execute the onTrue blocks
                 if (result) {
                     if (block.onTrue) {
-                        link(template, block.onTrue, data, block.startTrue);
+                        this.link(template, block.onTrue, block.startTrue);
                     }
                 } else {
                     if (block.onFalse && block.else) {
-                        link(template, block.onFalse, data, block.startFalse);
+                        this.link(template, block.onFalse, block.startFalse);
                     }
                 }
 
@@ -360,18 +393,44 @@ function link (template, adt, data, start) {
             * {each <list> as <item>[, <index>]}
             */
             case types.LOOP:
-                pieces.push(template.substring(start, block.start));
+                this.pieces.push(template.substring(start, block.start));
 
-                var list = data[block.list] || [];
+                var list = this.data[block.list] || [];
 
                 for (var j = 0; j < list.length; ++j) {
-                    data[block.iterator] = list[j];
-                    data[block.index] = j;
+                    this.data[block.iterator] = list[j];
+                    this.data[block.index] = j;
 
-                    link(template, block.loop, data, block.startLoop);
+                    this.link(template, block.loop, block.startLoop);
                 }
 
                 start = block.endTrue;
+
+                break;
+
+            /**
+            * Nothing found. Look for a hook.
+            */
+            default:
+                var hook = this.hooks[block.type];
+                if (hook) {
+                    this.pieces.push(hook.call(this, block));
+                }
+
+                start = block.end + 1;
+
+                //save the state if the hook
+                //paused execution
+                if (this.paused) {
+                    this.state = {
+                        template: template,
+                        adt: adt,
+                        start: start,
+                        i: i + 1
+                    };
+
+                    return;
+                }
 
                 break;
         }
@@ -379,10 +438,11 @@ function link (template, adt, data, start) {
 
     //add the last of the template if this was the
     //original link call
-    if (originalStart === 0) {
-        pieces.push(template.substring(start, template.length));
+    if (originalStart === 0 || originalI !== undefined) {
+        this.pieces.push(template.substring(start, template.length));
+        
+        this.oncompiled && this.oncompiled(this.pieces.join(""))
     }
-    
 }
 
-exports.tokenize = tokenize;
+module.exports = Greenhouse;
