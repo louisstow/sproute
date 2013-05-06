@@ -21,6 +21,8 @@ function App (name, dir, server) {
 	for (var route in this.controller) {
 		this.initRoute(route, this.controller[route]);
 	}
+
+	this.loadREST();
 }
 
 App.prototype = {
@@ -57,6 +59,10 @@ App.prototype = {
 		}
 	},
 
+	/**
+	* Load the model structures and initialise
+	* the storage instance for this app.
+	*/
 	loadModel: function () {
 		var modelPath = path.join(this.dir, this.config.models);
 		var files = fs.readdirSync(modelPath);
@@ -71,6 +77,11 @@ App.prototype = {
 		this.storage = new Storage(this.name, structure);
 	},
 
+	/**
+	* Setup the routes from the controller. Handle
+	* the requests and start an instance of the greenhouse
+	* template parser.
+	*/
 	initRoute: function (route, view) {
 
 		var viewPath = path.join(this.dir, this.config.views, view + "." + this.config.extension);
@@ -119,6 +130,10 @@ App.prototype = {
 		});
 	},
 
+	/**
+	* Setup hooks into the template parser to
+	* return data from the storage engine.
+	*/
 	loadHook: function () {
 		var app = this;
 		this.hooks = {
@@ -137,6 +152,28 @@ App.prototype = {
 				}.bind(this));
 			}
 		};
+	},
+
+	/**
+	* User the server 
+	*/
+	loadREST: function () {
+		this.server.get("/data/*", this.handleREST.bind(this));
+		this.server.post("/data/*", this.handleREST.bind(this));
+		this.server.delete("/data/*", this.handleREST.bind(this));
+	},
+
+	handleREST: function (req, res) {
+		console.log(req.url, req.method);
+		var method = req.method.toLowerCase();
+		this.storage[method](req.url, function (err, response) {
+			console.log("RESP",response)
+			if (err) {
+				console.error("Error in storage method", url, method);
+				console.error(err);
+			}
+			res.json(response);
+		});
 	}
 };
 

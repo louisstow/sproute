@@ -1,5 +1,5 @@
 {get /data/posts as posts}
 {each posts as post}
 	<h1>{post.title}</h1>
-	<div class="post">{post.body}</div>
+	<div class="post">{#post.post}</div>
 {/each}

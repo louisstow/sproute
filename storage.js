@@ -38,12 +38,17 @@ function Storage (app, structure, server) {
 	});
 }
 
-Storage.prototype.getRows = function (table, next) {
-	this.db[table].find(next);
-};
+Storage.prototype.post = function (url, next) {
+	var parts = url.split("/");
 
-Storage.prototype.addRow = function (table, data, next) {
-	this.db[table].insert(data, next);
+	//trim uneeded parts of the request
+	if (parts[0] == '') { parts.splice(0, 1); }
+	if (parts[parts.length - 1] == '') { parts.splice(parts.length - 1, 1); }
+	if (parts[0] == 'data') { parts.splice(0, 1); }
+
+	var table = parts[0];
+	var field = parts[1];
+	var value = parts[2];
 };
 
 Storage.prototype.get = function (url, next) {
@@ -63,14 +68,16 @@ Storage.prototype.get = function (url, next) {
 		var query = {};
 		query[field] = value;
 
-		this.db.collection(table).find(query, next);
+		this.db.collection(table).find(query).toArray(next);
 	}
 	//1 part means list data 
 	else if (parts.length === 1) {
 		
 		this.db.collection(table).find({}).toArray(next);
 	}
-	console.log(parts)
+	else {
+		next(null, {error: "Invalid request"});
+	}
 }
 
 Storage.init = function (app) {
