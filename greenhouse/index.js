@@ -166,19 +166,21 @@ Greenhouse.prototype.gatherData = function (next) {
     var acquire = this.acquire;
     console.log("ACQUIRE", acquire)
 
-    var f = ff(this, function () {
-        var group = f.group();
+    var f = ff(this);
+    for (var i = 0; i < acquire.length; ++i) {
+        (function (block) {
+            f.next(function () {
+                var hook = this.dataHooks[block.type];
+                console.log("hook", block)
 
-        for (var i = 0; i < acquire.length; ++i) {
-            var block = acquire[i];
-            var hook = this.dataHooks[block.type];
-            console.log("hook", block)
-
-            if (hook) {
-                hook.call(this, block, group());
-            }
-        }    
-    }).cb(next);
+                if (hook) {
+                    hook.call(this, block, f.wait());
+                }
+            })    
+        })(acquire[i])
+        
+    }    
+   f.cb(next);
 }
 
 /**
