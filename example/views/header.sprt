@@ -1,8 +1,8 @@
 <html>
 <head>
-	<title></title>
+	<title>MYBLOG - {title}</title>
 </head>
 
 <body>
-<h1>MYBLOG</h1>
+<h1><a href="/">MYBLOG</a></h1>
 <hr />
