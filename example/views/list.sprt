@@ -1,5 +1,7 @@
+{include header.sprt}
 {get /data/posts as posts}
 {each posts as post}
-	<h1>{post.title}</h1>
+	<h1><a href="/post/{post._id}/">{post.title}</a></h1>
 	<div class="post">{#post.post}</div>
 {/each}
+{include footer.sprt}

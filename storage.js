@@ -1,5 +1,6 @@
 var mongo = require("mongodb");
 var ff = require("ff");
+var url = require("url");
 
 var HOST = "localhost";
 var PORT = 27017;
@@ -38,8 +39,9 @@ function Storage (app, structure, server) {
 	});
 }
 
-Storage.prototype.post = function (url, next) {
-	var parts = url.split("/");
+Storage.prototype.post = function (req, data, next) {
+	var query = url.parse(req, true);
+	var parts = query.pathname.split("/");
 
 	//trim uneeded parts of the request
 	if (parts[0] == '') { parts.splice(0, 1); }
@@ -49,10 +51,23 @@ Storage.prototype.post = function (url, next) {
 	var table = parts[0];
 	var field = parts[1];
 	var value = parts[2];
+
+	if (parts.length === 3) {
+		var query = {};
+		query[field] = value;
+
+		var opts = { upsert: false, multi: true, w: OPTS.w };
+
+		//dont create if it doesn't exist, apply to multiple
+		this.db.collection(table).update(query, data, opts, next);
+	} else {
+		this.db.collection(table).insert(data, OPTS, next);
+	}
 };
 
-Storage.prototype.get = function (url, next) {
-	var parts = url.split("/");
+Storage.prototype.get = function (req, next) {
+	var q = url.parse(req, true);
+	var parts = q.pathname.split("/");
 
 	//trim uneeded parts of the request
 	if (parts[0] == '') { parts.splice(0, 1); }
@@ -68,7 +83,19 @@ Storage.prototype.get = function (url, next) {
 		var query = {};
 		query[field] = value;
 
-		this.db.collection(table).find(query).toArray(next);
+		if (field === "_id") {
+			query[field] = mongo.ObjectID(value);
+		}
+
+		if (q.query.single) {
+			this.db.collection(table).find(query).toArray(function (err, arr) {
+				if (err) next(err, null)
+				else next(null, arr[0]);
+			});
+		} else {
+			this.db.collection(table).find(query).toArray(next);	
+		}
+		
 	}
 	//1 part means list data 
 	else if (parts.length === 1) {

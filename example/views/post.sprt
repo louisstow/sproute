@@ -1,3 +1,5 @@
-{get /data/post/id/:param.id as post}
+{include header.sprt}
+{get /data/posts/_id/:params.id?single=true as post}
 <h1>{post.title}</h1>
-<div>{post.body}</div>
+<div>{#post.post}</div>
+{include footer.sprt}

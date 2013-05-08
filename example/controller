@@ -1,4 +1,5 @@
 {
 	"/": "list",
-	"/post/:title/": "post"
+	"/post/:id/": "post",
+	"/write": "write"
 }

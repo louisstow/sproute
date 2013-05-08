@@ -1,3 +1,6 @@
+var fs = require("fs");
+var path = require("path");
+var ff = require("ff");
 
 var entityMap = {
     "&": "&amp;",
@@ -24,26 +27,74 @@ function escapeHtml (string) {
 var types = {
     "VAR": "var",
     "CONDITION": "condition",
-    "LOOP": "loop"
+    "LOOP": "loop",
+    "INCLUDE": "include"
 };
 
-function Greenhouse () {
+function Greenhouse (dataHooks, hooks) {
     //save compile errors
     this.compileErrors = [];
     this.isError = false;
 
     //allow hooks into the template language
-    this.hooks = {};
+    this.dataHooks = dataHooks || {};
+    this.hooks = hooks || {};
+    this.includeCache = {};
+
+    this.dataHooks.include = function (block, next) {
+        var viewPath = path.join(this.data.self.dir, block.rawExpr);
+
+        var f = ff(this, function () {
+            fs.exists(viewPath, f.slotPlain());
+        }, function (exists) {
+            if (!exists) {
+                console.error("In include: FILE NOT EXISTS", viewPath);
+                return f.pass("");
+            }
+
+            fs.readFile(viewPath, f.slot());
+        }, function (contents) {
+            if (contents === "") {
+                return this.pass(contents);
+            }
+
+            contents = contents.toString();
+            
+            var g = new Greenhouse(this.dataHooks, this.hooks);
+            g.oncompiled = f.slotPlain();
+            g.render(contents, this.data);
+        }, function (html) {
+            this.includeCache[block.rawExpr] = html;
+        }).cb(next);
+    }
 
     this.pieces = [];
 
     this.paused = false;
-    this.state = null;
+    this.acquire = [];
 }
 
 Greenhouse.toJSON = function (adt) {
     return JSON.stringify(adt, null, '\t');
 }
+
+/**
+* Take a string of a variable and expand it
+* without using eval()
+*/
+Greenhouse.extractDots = function (line, data) {
+    if (line.indexOf(".") === -1) {
+        return data[line];
+    }
+
+    return line.split('.').reduce(
+        function (obj, i) {
+            return obj && obj[i];
+        },
+
+        data
+    );
+};
 
 /**
 * Parse template char by char
@@ -53,23 +104,24 @@ Greenhouse.toJSON = function (adt) {
     * save the start and end char points in template
 * look for }
 */
-Greenhouse.prototype.render = function (template, data, hooks) {
+Greenhouse.prototype.render = function (template, data) {
     this.compileErrors.length = 0;
 
-    if (hooks) { this.hooks = hooks; }
+    this.data = data;    
 
     //tokenize and set error flag
     var tokens = this.tokenize(template);
     this.isError = !!this.compileErrors.length;
 
-    this.data = data;
-    
     if (this.isError) {
-        console.log(exports.compileErrors);
+        console.error(exports.compileErrors);
         return;
     }
 
-    this.link(template, tokens, 0);
+    this.gatherData(function () {
+        console.log("GATHER DATA")
+        this.link(template, tokens, 0);
+    });
 }
 
 
@@ -88,7 +140,34 @@ function getLineFromIndex (template, index) {
         }
     }
 
-    console.log(num + ":|" + line);
+    console.log(num + ":\t" + line);
+}
+
+Greenhouse.prototype.parseExpression = function (expr) {
+    var self = this;
+
+    return expr && expr.replace(/:([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)/g, function (a, name) {
+        return Greenhouse.extractDots(name, self.data);
+    });
+}
+
+Greenhouse.prototype.gatherData = function (next) {
+    var acquire = this.acquire;
+    console.log("ACQUIRE", acquire)
+
+    var f = ff(this, function () {
+        var group = f.group();
+
+        for (var i = 0; i < acquire.length; ++i) {
+            var block = acquire[i];
+            var hook = this.dataHooks[block.type];
+            console.log("hook", block)
+
+            if (hook) {
+                hook.call(this, block, group());
+            }
+        }    
+    }).cb(next);
 }
 
 /**
@@ -137,11 +216,31 @@ Greenhouse.prototype.tokenize = function (template) {
             parent.push(token);
 
             var keyword = expression.split(" ")[0].toLowerCase();
+            //look for a standard hook
             if (this.hooks[keyword]) {
                 token.type = keyword;
-                token.expr = expression.substr(keyword.length).trim();
+                token.rawExpr = expression.substr(keyword.length).trim();
+                token.start = openTag;
+                token.expr = this.parseExpression(token.rawExpr, this.data);
+                token.end = idx;
+            }
+            //then a data hook
+            else if (this.dataHooks[keyword]) {
+                token.type = keyword;
+                token.rawExpr = expression.substr(keyword.length).trim();
                 token.start = openTag;
                 token.end = idx;
+                token.expr = this.parseExpression(token.rawExpr, this.data);
+                console.log(this.data.params)
+                this.acquire.push(token);
+            }
+            //check includes
+            else if (expression.substr(0, 7).toLowerCase() === "include") {
+                token.type = types.INCLUDE;
+                token.path = expression.substr(8);
+                token.start = openTag;
+                token.end = idx;
+                this.acquire.push(token);
             }
             //a conditional statement
             else if (expression.substr(0, 2).toLowerCase() === "if") {
@@ -250,46 +349,12 @@ Greenhouse.prototype.tokenize = function (template) {
     return tokens;
 }
 
-/**
-* 1. Compile to `compiled`
-* 2. When rendering placeholder... do something
-* 3. 
-*/
-Greenhouse.extractDots = function (line, data) {
-    if (line.indexOf(".") === -1) {
-        return data[line];
-    }
-
-    return line.split('.').reduce(
-        function (obj, i) {
-            return obj && obj[i];
-        },
-
-        data
-    );
-};
-
-Greenhouse.prototype.pause = function () {
-    this.paused = true;
-}
-
-Greenhouse.prototype.resume = function () {
-    this.paused = false;
-    console.log(this.state)
-    this.link(
-        this.state.template,
-        this.state.adt,
-        this.state.start,
-        this.state.i
-    ); 
-
-    this.state = null;
-}
-
-Greenhouse.prototype.link = function (template, adt, start, i) {
+Greenhouse.prototype.link = function (template, adt, start, i, level) {
     var originalStart = start;
     var originalI = i;
 
+    level = level || 0;
+    
     for (i = i || 0; i < adt.length; ++i) {
         var block = adt[i];
 
@@ -299,8 +364,15 @@ Greenhouse.prototype.link = function (template, adt, start, i) {
             start = block.skipTo;
             continue; 
         }
-
+        
         switch (block.type) {
+            /**
+            * {include}
+            */
+            case types.INCLUDE:
+                this.pieces.push(this.includeCache[block.rawExpr]);
+                start = block.end + 1;
+                break;
 
             /**
             * {<var>}
@@ -326,13 +398,12 @@ Greenhouse.prototype.link = function (template, adt, start, i) {
                 break;
             
             /**
-            * {if: <var> <operator> <value>}
+            * {if <var> <operator> <value>}
             */
             case types.CONDITION:
                 this.pieces.push(template.substring(start, block.start));
 
                 var result = false;
-
                 
                 var thing = Greenhouse.extractDots(block.thing, this.data);
                 var operator = block.operator;
@@ -413,24 +484,13 @@ Greenhouse.prototype.link = function (template, adt, start, i) {
             */
             default:
                 var hook = this.hooks[block.type];
+                block.expr = this.parseExpression(block.rawExpr);
+                
                 if (hook) {
                     this.pieces.push(hook.call(this, block));
                 }
 
                 start = block.end + 1;
-
-                //save the state if the hook
-                //paused execution
-                if (this.paused) {
-                    this.state = {
-                        template: template,
-                        adt: adt,
-                        start: start,
-                        i: i + 1
-                    };
-
-                    return;
-                }
 
                 break;
         }

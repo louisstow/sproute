@@ -117,16 +117,19 @@ App.prototype = {
 			//build the data to pass into template
 			_.extend(data, {
 				params: req.params, 
-				query: req.query
+				query: req.query,
+				self: {
+					dir: path.join(self.dir, self.config.views)
+				}
 			});
 
 			//render and send it back to client
-			var g = new Greenhouse();
+			var g = new Greenhouse(self.dataHooks);
 			g.oncompiled = function (html) {
 				res.send(html);
 			};
 
-			g.render(template, data, self.hooks);
+			g.render(template, data);
 		});
 	},
 
@@ -136,19 +139,18 @@ App.prototype = {
 	*/
 	loadHook: function () {
 		var app = this;
-		this.hooks = {
-			get: function (block) {
+		this.dataHooks = {
+			get: function (block, next) {
 				//pause parsing and decode request
-				this.pause();
 				var expr = block.expr.split(" ");
 				var key = expr[2];
 				var url = expr[0];
-
+				console.log("hook get", expr, key, url)
 				//request the data then continue parsing
 				app.storage.get(url, function (err, data) {
-					console.log(url, data, key)
+					console.log("get cmd", url, data, key)
 					this.data[key] = data;
-					this.resume();
+					next();
 				}.bind(this));
 			}
 		};
@@ -158,18 +160,35 @@ App.prototype = {
 	* User the server 
 	*/
 	loadREST: function () {
-		this.server.get("/data/*", this.handleREST.bind(this));
-		this.server.post("/data/*", this.handleREST.bind(this));
-		this.server.delete("/data/*", this.handleREST.bind(this));
+		this.server.get("/data/*", this.handleGET.bind(this));
+		this.server.post("/data/*", this.handlePOST.bind(this));
+		this.server.delete("/data/*", this.handleDELETE.bind(this));
 	},
 
-	handleREST: function (req, res) {
-		console.log(req.url, req.method);
-		var method = req.method.toLowerCase();
-		this.storage[method](req.url, function (err, response) {
-			console.log("RESP",response)
+	handleGET: function (req, res) {
+		this.storage.get(req.url, function (err, response) {
 			if (err) {
-				console.error("Error in storage method", url, method);
+				console.error("Error in storage method", req.url, "GET");
+				console.error(err);
+			}
+			res.json(response);
+		});
+	},
+
+	handlePOST: function (req, res) {
+		this.storage.post(req.url, req.body, function (err, response) {
+			if (err) {
+				console.error("Error in storage method", req.url, "POST");
+				console.error(err);
+			}
+			res.json(response);
+		});
+	},
+
+	handleDELETE: function (req, res) {
+		this.storage.delete(req.url, req.post, function (err, response) {
+			if (err) {
+				console.error("Error in storage method", req.url, "DELETE");
 				console.error(err);
 			}
 			res.json(response);
