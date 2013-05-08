@@ -59,13 +59,24 @@ function Greenhouse (dataHooks, hooks) {
             }
 
             contents = contents.toString();
-            
+            console.log("VALUE OF DATA", this.data)
             var g = new Greenhouse(this.dataHooks, this.hooks);
             g.oncompiled = f.slotPlain();
             g.render(contents, this.data);
         }, function (html) {
             this.includeCache[block.rawExpr] = html;
         }).cb(next);
+    };
+
+    this.dataHooks.set = function (block, next) {
+        var expand = this.parseExpression(block.rawExpr, this.data)
+        var expr = expand.split(" ");
+        var name = expr[0];
+        var value = expr[1];
+        console.log("SET", name, value)
+
+        this.data[name] = value;
+        next();
     }
 
     this.pieces = [];
@@ -221,7 +232,6 @@ Greenhouse.prototype.tokenize = function (template) {
                 token.type = keyword;
                 token.rawExpr = expression.substr(keyword.length).trim();
                 token.start = openTag;
-                token.expr = this.parseExpression(token.rawExpr, this.data);
                 token.end = idx;
             }
             //then a data hook
@@ -231,7 +241,6 @@ Greenhouse.prototype.tokenize = function (template) {
                 token.start = openTag;
                 token.end = idx;
                 token.expr = this.parseExpression(token.rawExpr, this.data);
-                console.log(this.data.params)
                 this.acquire.push(token);
             }
             //check includes
