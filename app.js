@@ -124,7 +124,7 @@ App.prototype = {
 			});
 
 			//render and send it back to client
-			var g = new Greenhouse(self.dataHooks);
+			var g = new Greenhouse(self.hooks);
 			g.oncompiled = function (html) {
 				res.send(html);
 			};
@@ -139,7 +139,7 @@ App.prototype = {
 	*/
 	loadHook: function () {
 		var app = this;
-		this.dataHooks = {
+		this.hooks = {
 			get: function (block, next) {
 				//pause parsing and decode request
 				var expr = block.expr.split(" ");

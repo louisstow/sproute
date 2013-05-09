@@ -24,6 +24,34 @@ function escapeHtml (string) {
     });
 }
 
+function asyncEach (arr, ctx, iterator, callback) {
+    callback = callback || function () {};
+    if (!arr.length) {
+        return callback.call(ctx);
+    }
+    var completed = 0;
+    var iterate = function () {
+        iterator.call(ctx, arr[completed], function (err) {
+            if (err) {
+                console.log("ERROR", err, err.stack)
+                callback.call(ctx, err);
+                callback = function () {};
+            }
+            else {
+                completed += 1;
+                console.log(completed, arr.length)
+                if (completed >= arr.length) {
+                    callback.call(ctx, null);
+                }
+                else {
+                    iterate.call(ctx);
+                }
+            }
+        });
+    };
+    iterate();
+}
+
 var types = {
     "VAR": "var",
     "CONDITION": "condition",
@@ -31,48 +59,23 @@ var types = {
     "INCLUDE": "include"
 };
 
-function Greenhouse (dataHooks, hooks) {
+function Greenhouse (hooks) {
     //save compile errors
     this.compileErrors = [];
     this.isError = false;
 
     //allow hooks into the template language
-    this.dataHooks = dataHooks || {};
     this.hooks = hooks || {};
-    this.includeCache = {};
 
-    this.dataHooks.include = function (block, next) {
-        var viewPath = path.join(this.data.self.dir, block.rawExpr);
-
-        var f = ff(this, function () {
-            fs.exists(viewPath, f.slotPlain());
-        }, function (exists) {
-            if (!exists) {
-                console.error("In include: FILE NOT EXISTS", viewPath);
-                return f.pass("");
-            }
-
-            fs.readFile(viewPath, f.slot());
-        }, function (contents) {
-            if (contents === "") {
-                return this.pass(contents);
-            }
-
-            contents = contents.toString();
-            console.log("VALUE OF DATA", this.data)
-            var g = new Greenhouse(this.dataHooks, this.hooks);
-            g.oncompiled = f.slotPlain();
-            g.render(contents, this.data);
-        }, function (html) {
-            this.includeCache[block.rawExpr] = html;
-        }).cb(next);
+    this.include = function (block, next) {
+        
     };
 
-    this.dataHooks.set = function (block, next) {
+    this.set = function (block, next) {
         var expand = this.parseExpression(block.rawExpr, this.data)
         var expr = expand.split(" ");
         var name = expr[0];
-        var value = expr[1];
+        var value = expr.slice(1).join(" ");
         console.log("SET", name, value)
 
         this.data[name] = value;
@@ -129,9 +132,14 @@ Greenhouse.prototype.render = function (template, data) {
         return;
     }
 
-    this.gatherData(function () {
-        console.log("GATHER DATA")
-        this.link(template, tokens, 0);
+    this.start = 0;
+    this.pieces = [];
+
+    this.process(template, tokens, function () {
+        console.log(this.pieces)
+        console.log("---- PROCESS FINISHED -----");
+        this.pieces.push(template.substring(this.start, template.length));
+        this.oncompiled && this.oncompiled.call(this, this.pieces.join(""));
     });
 }
 
@@ -236,22 +244,12 @@ Greenhouse.prototype.tokenize = function (template) {
                 token.start = openTag;
                 token.end = idx;
             }
-            //then a data hook
-            else if (this.dataHooks[keyword]) {
-                token.type = keyword;
-                token.rawExpr = expression.substr(keyword.length).trim();
-                token.start = openTag;
-                token.end = idx;
-                token.expr = this.parseExpression(token.rawExpr, this.data);
-                this.acquire.push(token);
-            }
             //check includes
             else if (expression.substr(0, 7).toLowerCase() === "include") {
                 token.type = types.INCLUDE;
                 token.path = expression.substr(8);
                 token.start = openTag;
                 token.end = idx;
-                this.acquire.push(token);
             }
             //a conditional statement
             else if (expression.substr(0, 2).toLowerCase() === "if") {
@@ -360,30 +358,50 @@ Greenhouse.prototype.tokenize = function (template) {
     return tokens;
 }
 
-Greenhouse.prototype.link = function (template, adt, start, i, level) {
-    var originalStart = start;
-    var originalI = i;
-
-    level = level || 0;
-    
-    for (i = i || 0; i < adt.length; ++i) {
-        var block = adt[i];
-
-        //skip if an empty block
+Greenhouse.prototype.process = function (template, adt, gnext) {
+    asyncEach(adt, this, function (block, next) {
+        //empty block, skip
         if (block.skipFrom) {
-            this.pieces.push(template.substring(start, block.skipFrom));
-            start = block.skipTo;
-            continue; 
+            this.pieces.push(template.substring(this.start, block.skipFrom));
+            this.start = block.skipTo;
+            return next(); 
         }
-        
+
         switch (block.type) {
             /**
             * {include}
             */
             case types.INCLUDE:
-                this.pieces.push(this.includeCache[block.rawExpr]);
-                start = block.end + 1;
-                break;
+                //this.pieces.push(this.includeCache[block.rawExpr]);
+                console.log("IN CLUDE?", block.end)
+                this.start = block.end + 1;
+                var viewPath = path.join(this.data.self.dir, block.path);
+
+                var f = ff(this, function () {
+                    fs.exists(viewPath, f.slotPlain());
+                }, function (exists) {
+                    if (!exists) {
+                        console.error("In include: FILE NOT EXISTS", viewPath);
+                        return f.pass("");
+                    }
+
+                    fs.readFile(viewPath, f.slot());
+                }, function (contents) {
+                    if (contents === "") {
+                        return this.pass(contents);
+                    }
+
+                    contents = contents.toString();
+                    console.log("VALUE OF DATA", this.data)
+                    var g = new Greenhouse(this.hooks);
+                    g.oncompiled = f.slotPlain();
+                    g.render(contents, this.data);
+                }, function (html) {
+                    console.log(html)
+                    this.pieces.push(html);
+                }).cb(next);
+
+                return;
 
             /**
             * {<var>}
@@ -401,18 +419,20 @@ Greenhouse.prototype.link = function (template, adt, start, i, level) {
                 var value = Greenhouse.extractDots(placeholder, this.data);
                 if (escape) { value = escapeHtml(value); }
             
-                this.pieces.push(template.substring(start, block.start - 1))
+                console.log("VAR", value, placeholder, this.start, block.start, block.end)
+                this.pieces.push(template.substring(this.start, block.start - 1))
                 if (value) { this.pieces.push(value); }
 
-                start = block.end + 1;
+                this.start = block.end + 1;
 
+                return next();
                 break;
             
             /**
             * {if <var> <operator> <value>}
             */
             case types.CONDITION:
-                this.pieces.push(template.substring(start, block.start));
+                this.pieces.push(template.substring(this.start, block.start));
 
                 var result = false;
                 
@@ -454,40 +474,53 @@ Greenhouse.prototype.link = function (template, adt, start, i, level) {
                         break;
                 }
 
+                var wrapNext = function () {
+                    console.log("FUCK CUNT")
+                    if (block.else) { this.start = block.endFalse; }
+                    else { this.start = block.endTrue; }
+                    next();
+                };
+
                 //if the expressions evaluates to
                 //true, execute the onTrue blocks
                 if (result) {
                     if (block.onTrue) {
-                        this.link(template, block.onTrue, block.startTrue);
+                        this.start = block.startTrue;
+                        this.process(template, block.onTrue, wrapNext);
                     }
                 } else {
                     if (block.onFalse && block.else) {
-                        this.link(template, block.onFalse, block.startFalse);
+                        this.start = block.startFalse
+                        this.process(template, block.onFalse, wrapNext);
                     }
                 }
 
-                if (block.else) { start = block.endFalse; }
-                else { start = block.endTrue; }
-
+                return;
                 break;
 
             /**
             * {each <list> as <item>[, <index>]}
             */
             case types.LOOP:
-                this.pieces.push(template.substring(start, block.start));
+                this.pieces.push(template.substring(this.start, block.start));
 
                 var list = this.data[block.list] || [];
+                var j = 0;
+                
+                asyncEach(list, this, function (item, next) {
+                    this.data[block.iterator] = item;
+                    this.data[block.index] = j++;
 
-                for (var j = 0; j < list.length; ++j) {
-                    this.data[block.iterator] = list[j];
-                    this.data[block.index] = j;
+                    console.log("PROCESS", block.startLoop)
+                    this.start = block.startLoop;
+                    this.process.call(this, template, block.loop, next);
+                }, function () {
+                    console.log("FINISH", block.endTrue)
+                    this.start = block.endTrue;
+                    next();
+                });
 
-                    this.link(template, block.loop, block.startLoop);
-                }
-
-                start = block.endTrue;
-
+                return;
                 break;
 
             /**
@@ -498,22 +531,21 @@ Greenhouse.prototype.link = function (template, adt, start, i, level) {
                 block.expr = this.parseExpression(block.rawExpr);
                 
                 if (hook) {
-                    this.pieces.push(hook.call(this, block));
+                    hook.call(this, block, function (html) {
+                        console.log("AFTER HOOK", block.end)
+                        if (html) { this.pieces.push(html); }
+                        this.start = block.end + 1;
+                        
+                        next.call(this);
+                    }.bind(this));
+                } else {
+                    this.start = block.end + 1;
+                    return next();
                 }
-
-                start = block.end + 1;
 
                 break;
         }
-    }
-
-    //add the last of the template if this was the
-    //original link call
-    if (originalStart === 0 || originalI !== undefined) {
-        this.pieces.push(template.substring(start, template.length));
-        
-        this.oncompiled && this.oncompiled(this.pieces.join(""))
-    }
+    }, gnext);
 }
 
 module.exports = Greenhouse;
