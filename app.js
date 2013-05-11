@@ -181,6 +181,11 @@ App.prototype = {
 				console.error("Error in storage method", req.url, "POST");
 				console.error(err);
 			}
+
+			if (req.query.goto) {
+				res.redirect(req.query.goto);
+			}
+
 			res.json(response);
 		});
 	},

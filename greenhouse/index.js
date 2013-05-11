@@ -67,25 +67,17 @@ function Greenhouse (hooks) {
     //allow hooks into the template language
     this.hooks = hooks || {};
 
-    this.include = function (block, next) {
-        
-    };
-
-    this.set = function (block, next) {
+    this.hooks.set = function (block, next) {
         var expand = this.parseExpression(block.rawExpr, this.data)
         var expr = expand.split(" ");
         var name = expr[0];
         var value = expr.slice(1).join(" ");
-        console.log("SET", name, value)
 
         this.data[name] = value;
         next();
     }
 
     this.pieces = [];
-
-    this.paused = false;
-    this.acquire = [];
 }
 
 Greenhouse.toJSON = function (adt) {
@@ -168,27 +160,6 @@ Greenhouse.prototype.parseExpression = function (expr) {
     return expr && expr.replace(/:([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)/g, function (a, name) {
         return Greenhouse.extractDots(name, self.data);
     });
-}
-
-Greenhouse.prototype.gatherData = function (next) {
-    var acquire = this.acquire;
-    console.log("ACQUIRE", acquire)
-
-    var f = ff(this);
-    for (var i = 0; i < acquire.length; ++i) {
-        (function (block) {
-            f.next(function () {
-                var hook = this.dataHooks[block.type];
-                console.log("hook", block)
-
-                if (hook) {
-                    hook.call(this, block, f.wait());
-                }
-            })    
-        })(acquire[i])
-        
-    }    
-   f.cb(next);
 }
 
 /**
@@ -374,6 +345,7 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
             case types.INCLUDE:
                 //this.pieces.push(this.includeCache[block.rawExpr]);
                 console.log("IN CLUDE?", block.end)
+                this.pieces.push(template.substring(this.start, block.start - 1))
                 this.start = block.end + 1;
                 var viewPath = path.join(this.data.self.dir, block.path);
 

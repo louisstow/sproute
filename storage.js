@@ -78,6 +78,20 @@ Storage.prototype.get = function (req, next) {
 	var field = parts[1];
 	var value = parts[2];
 
+	var opts = {};
+
+	if (q.query.limit) {
+		var limit = q.query.limit.split(",");
+		opts.limit = +limit[1] || +limit[0];
+		if (limit.length == 2) { opts.skip = +limit[0]; }
+	}
+
+	if (q.query.sort) {
+		var sort = q.query.sort.split(",");
+		var sorter = sort[1] === "desc" ? -1 : 1;
+		opts.sort = [[sort[0], sorter]];
+	}
+
 	//3 parts means single item
 	if (parts.length === 3) {
 		var query = {};
@@ -87,20 +101,21 @@ Storage.prototype.get = function (req, next) {
 			query[field] = mongo.ObjectID(value);
 		}
 
-		if (q.query.single) {
-			this.db.collection(table).find(query).toArray(function (err, arr) {
-				if (err) next(err, null)
-				else next(null, arr[0]);
-			});
-		} else {
-			this.db.collection(table).find(query).toArray(next);	
-		}
-		
+		this.db.collection(table).find(query, opts).toArray(function (err, arr) {
+			if (err) {
+				return next(err);
+			}
+
+			if (q.query.single) {
+				next(null, arr[0]);
+			} else {
+				next(null, arr);
+			}
+		});
 	}
 	//1 part means list data 
 	else if (parts.length === 1) {
-		
-		this.db.collection(table).find({}).toArray(next);
+		this.db.collection(table).find({}, opts).toArray(next);
 	}
 	else {
 		next(null, {error: "Invalid request"});
