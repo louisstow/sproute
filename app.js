@@ -191,11 +191,16 @@ App.prototype = {
 	},
 
 	handleDELETE: function (req, res) {
-		this.storage.delete(req.url, req.post, function (err, response) {
+		this.storage.delete(req.url, function (err, response) {
 			if (err) {
 				console.error("Error in storage method", req.url, "DELETE");
 				console.error(err);
 			}
+
+			if (req.query.goto) {
+				res.redirect(req.query.goto);
+			}
+			
 			res.json(response);
 		});
 	}
