@@ -5,5 +5,12 @@
 
 <body>
 <h1><a href="/">MYBLOG</a></h1>
-<a href="/write">Write</a>
+<a href="/write">Write</a> | 
+
+{if session.user}
+	<a href="/logout">Logout</a>
+{else}
+	<a href="/login">Login</a>
+	
+{/}
 <hr />

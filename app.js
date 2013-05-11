@@ -26,7 +26,6 @@ function App (name, dir, server) {
 	}
 
 	this.loadREST();
-	this.loadUserEndpoints();
 }
 
 App.prototype = {
@@ -137,6 +136,7 @@ App.prototype = {
 			_.extend(data, {
 				params: req.params, 
 				query: req.query,
+				session: req.session,
 				self: {
 					dir: path.join(self.dir, self.config.views)
 				}
@@ -182,6 +182,10 @@ App.prototype = {
 		this.server.get("/data/*", this.handleGET.bind(this));
 		this.server.post("/data/*", this.handlePOST.bind(this));
 		this.server.delete("/data/*", this.handleDELETE.bind(this));
+
+		this.server.get("/api/logged", this.getLogged.bind(this));
+		this.server.post("/api/login", this.login.bind(this));
+		this.server.post("/api/logout", this.logout.bind(this));
 	},
 
 	handleGET: function (req, res) {
@@ -224,18 +228,41 @@ App.prototype = {
 		});
 	},
 
-	loadUserEndpoints: function () {
-		this.server.post("/login", function () {
+	getLogged: function (req, res) {
+		if (req.session && req.session.user) {
+			res.json(req.session.user); 
+		} else {
+			res.json(false);
+		}
+	},
 
+	login: function (req, res) {
+		this.storage.get("/data/users/name/" + req.body.name, function (err, data) {
+			console.log("err", data);
+			if (err || !data.length) {
+				return res.json({error: "User not found"});
+			}
+
+			var user = data[0];
+			if (user.pass === req.body.pass) {
+				req.session.user = _.extend({}, user);
+				delete req.session.user.pass;
+				res.json(req.session.user);
+			} else {
+				res.json({error: "Username and password mismatch"})
+			}
+
+			if (req.query.goto) {
+				res.redirect(req.query.goto);
+			}
 		});
+	},
 
-		this.server.get("/logged", function () {
-
-		});
-
-		this.server.post("/logout", function () {
-
-		});
+	logout: function (req, res) {
+		req.session = null;
+		if (req.query.goto) {
+			res.redirect(req.query.goto);
+		}
 	}
 };
 

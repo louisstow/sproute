@@ -33,13 +33,12 @@ function asyncEach (arr, ctx, iterator, callback) {
     var iterate = function () {
         iterator.call(ctx, arr[completed], function (err) {
             if (err) {
-                console.log("ERROR", err, err.stack)
+                console.error("ERROR", err, err.stack)
                 callback.call(ctx, err);
                 callback = function () {};
             }
             else {
                 completed += 1;
-                console.log(completed, arr.length)
                 if (completed >= arr.length) {
                     callback.call(ctx, null);
                 }
@@ -128,7 +127,7 @@ Greenhouse.prototype.render = function (template, data) {
     this.pieces = [];
 
     this.process(template, tokens, function () {
-        console.log(this.pieces)
+        
         console.log("---- PROCESS FINISHED -----");
         this.pieces.push(template.substring(this.start, template.length));
         this.oncompiled && this.oncompiled.call(this, this.pieces.join(""));
@@ -343,8 +342,6 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
             * {include}
             */
             case types.INCLUDE:
-                //this.pieces.push(this.includeCache[block.rawExpr]);
-                console.log("IN CLUDE?", block.end)
                 this.pieces.push(template.substring(this.start, block.start - 1))
                 this.start = block.end + 1;
                 var viewPath = path.join(this.data.self.dir, block.path);
@@ -364,12 +361,10 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                     }
 
                     contents = contents.toString();
-                    console.log("VALUE OF DATA", this.data)
                     var g = new Greenhouse(this.hooks);
                     g.oncompiled = f.slotPlain();
                     g.render(contents, this.data);
                 }, function (html) {
-                    console.log(html)
                     this.pieces.push(html);
                 }).cb(next);
 
@@ -391,7 +386,6 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                 var value = Greenhouse.extractDots(placeholder, this.data);
                 if (escape) { value = escapeHtml(value); }
             
-                console.log("VAR", value, placeholder, this.start, block.start, block.end)
                 this.pieces.push(template.substring(this.start, block.start - 1))
                 if (value) { this.pieces.push(value); }
 
@@ -411,6 +405,11 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                 var thing = Greenhouse.extractDots(block.thing, this.data);
                 var operator = block.operator;
                 var value = block.value;
+                
+                //convert thing to boolean
+                if (typeof value === "boolean") {
+                    thing = !!thing;
+                }
 
                 switch (operator) {
                     case "=":
@@ -447,7 +446,6 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                 }
 
                 var wrapNext = function () {
-                    console.log("FUCK CUNT")
                     if (block.else) { this.start = block.endFalse; }
                     else { this.start = block.endTrue; }
                     next();
@@ -483,11 +481,9 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                     this.data[block.iterator] = item;
                     this.data[block.index] = j++;
 
-                    console.log("PROCESS", block.startLoop)
                     this.start = block.startLoop;
                     this.process.call(this, template, block.loop, next);
                 }, function () {
-                    console.log("FINISH", block.endTrue)
                     this.start = block.endTrue;
                     next();
                 });
@@ -504,7 +500,6 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                 
                 if (hook) {
                     hook.call(this, block, function (html) {
-                        console.log("AFTER HOOK", block.end)
                         if (html) { this.pieces.push(html); }
                         this.start = block.end + 1;
                         

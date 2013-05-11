@@ -1,5 +1,6 @@
 {
 	"/": "list",
 	"/post/:id/": "post",
-	"/write": "write"
+	"/write": "write",
+	"/login": "login"
 }
