@@ -2,6 +2,7 @@ var path = require("path");
 var ff = require("ff");
 var fs = require("fs");
 var _ = require("underscore");
+var express = require("express");
 
 var Storage = require("./storage");
 var Greenhouse = require("./greenhouse");
@@ -9,10 +10,12 @@ var Greenhouse = require("./greenhouse");
 function App (name, dir, server) {
 	this.name = name;
 	this.dir = dir;
-	this.server = server;
+	
 	this._viewCache = {};
 
 	this.loadConfig();
+	this.server = this.loadServer();
+
 	this.loadController();
 	this.loadModel();
 
@@ -23,6 +26,7 @@ function App (name, dir, server) {
 	}
 
 	this.loadREST();
+	this.loadUserEndpoints();
 }
 
 App.prototype = {
@@ -45,6 +49,21 @@ App.prototype = {
 			};
 		}
 
+	},
+
+	loadServer: function () {
+		var server = express();
+		var secret = this.config.secret || (this.config.secret = (Math.random() * 10000000 | 0).toString(16));
+
+	    server.use(express.cookieParser(secret));
+	    server.use(express.session({secret: secret, cookie: {maxAge: null}}));
+
+	    server.use(express.static("./public", { maxAge: 1 }));
+	    server.use(express.bodyParser());
+
+	    this.config.port = this.config.port || 8089;
+	    server.listen(this.config.port);
+	    return server;
 	},
 
 	/**
@@ -200,8 +219,22 @@ App.prototype = {
 			if (req.query.goto) {
 				res.redirect(req.query.goto);
 			}
-			
+
 			res.json(response);
+		});
+	},
+
+	loadUserEndpoints: function () {
+		this.server.post("/login", function () {
+
+		});
+
+		this.server.get("/logged", function () {
+
+		});
+
+		this.server.post("/logout", function () {
+
 		});
 	}
 };

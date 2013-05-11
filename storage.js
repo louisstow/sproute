@@ -8,7 +8,8 @@ var PORT = 27017;
 var OPTS = {
 	w: 1,
 	capped: true,
-	size: 5000000 //5,000,000 byes = 5MB
+	size: 5000000, //5,000,000 byes = 5MB
+	strict: true
 };
 
 var userStructure = {
@@ -44,10 +45,24 @@ function Storage (app, structure, server) {
 
 		self.onready && self.onready.call(self);
 		for (var table in structure) {
-			db.createCollection(table, OPTS, function () {
-				console.log("Collection created");
-			});
+			//horray, a fucking closure
+			(function (table) {
+				db.createCollection(table, OPTS, function (err) {
+					console.log("Collection created", err, table);
+					if (!err && table === "users") {
+						//this should come from somewhere else
+						db.collection("users").insert({
+							name: "admin",
+							email: "admin@admin.com",
+							pass: "admin"
+						}, function () {});
+					}
+				});
+			})(table)
+			
 		}
+
+
 	});
 
 	this.db.on("error", function () {
