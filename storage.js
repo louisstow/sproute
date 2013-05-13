@@ -74,8 +74,8 @@ function Storage (app, structure, server) {
 * Insert data into a collection
 * through a REST api
 */
-Storage.prototype.post = function (req, data, next) {
-	var query = url.parse(req, true);
+Storage.prototype.post = function (req, reqUrl, data, next) {
+	var query = url.parse(reqUrl, true);
 	var parts = query.pathname.split("/");
 
 	//trim uneeded parts of the request
@@ -91,11 +91,23 @@ Storage.prototype.post = function (req, data, next) {
 		var query = {};
 		query[field] = value;
 
+		//update hidden fields
+		query['_lastUpdated'] = Date.now();
+		if (req.session && req.session.user) {
+			query['_lastUpdator'] = req.session.user._id;
+			query['_lastUpdatorName'] = req.session.user.name;
+		}
+
 		var opts = { upsert: false, multi: true, w: OPTS.w };
 
 		//dont create if it doesn't exist, apply to multiple
 		this.db.collection(table).update(query, data, opts, next);
 	} else {
+		if (req.session && req.session.user) {
+			data['_creator'] = req.session.user._id;
+			data['_creatorName'] = req.session.user.name;
+		}
+
 		this.db.collection(table).insert(data, OPTS, next);
 	}
 };

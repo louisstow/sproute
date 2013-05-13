@@ -405,7 +405,7 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                 var thing = Greenhouse.extractDots(block.thing, this.data);
                 var operator = block.operator;
                 var value = block.value;
-                
+
                 //convert thing to boolean
                 if (typeof value === "boolean") {
                     thing = !!thing;
@@ -497,7 +497,8 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
             default:
                 var hook = this.hooks[block.type];
                 block.expr = this.parseExpression(block.rawExpr);
-                
+                this.pieces.push(template.substring(this.start, block.start));
+
                 if (hook) {
                     hook.call(this, block, function (html) {
                         if (html) { this.pieces.push(html); }

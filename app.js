@@ -34,18 +34,20 @@ App.prototype = {
 	* called "config" and be valid JSON.
 	*/
 	loadConfig: function () {
+		this.config = {
+			"models": "models",
+			"views": "views",
+			"controller": "controller.json",
+			"extension": "sprt",
+			"secret": this.name.toUpperCase()
+		};
+
 		try {
-			this.config = JSON.parse(fs.readFileSync(path.join(this.dir, ".config")));
+			var c = JSON.parse(fs.readFileSync(path.join(this.dir, "config.json")));
+			_.extend(this.config, c);
 		} catch (e) {
 			console.error("Error loading config");
-			console.error(e);
-
-			this.config = {
-				"models": "models",
-				"views": "views",
-				"controller": "controller",
-				"extension": "sprt"
-			};
+			console.error(e, e.stack);
 		}
 
 	},
@@ -70,10 +72,12 @@ App.prototype = {
 	*/
 	loadController: function () {
 		try {
+			console.log(this.config, this.dir)
 			this.controller = JSON.parse(fs.readFileSync(path.join(this.dir, this.config.controller)));
 		} catch (e) {
 			console.error("Controller at path: [" +  + "] not found.");
 			console.error(e);
+			console.error(e.stack);
 		}
 	},
 
@@ -138,7 +142,8 @@ App.prototype = {
 				query: req.query,
 				session: req.session,
 				self: {
-					dir: path.join(self.dir, self.config.views)
+					dir: path.join(self.dir, self.config.views),
+					url: req.url
 				}
 			});
 
@@ -199,7 +204,7 @@ App.prototype = {
 	},
 
 	handlePOST: function (req, res) {
-		this.storage.post(req.url, req.body, function (err, response) {
+		this.storage.post(req, req.url, req.body, function (err, response) {
 			if (err) {
 				console.error("Error in storage method", req.url, "POST");
 				console.error(err);
@@ -263,6 +268,12 @@ App.prototype = {
 		if (req.query.goto) {
 			res.redirect(req.query.goto);
 		}
+	},
+
+	hashPassword: function (pass) {
+		var hash = crypto.createHash("sha256");
+		hash.update(pass);
+		return hash.digest("hex");
 	}
 };
 

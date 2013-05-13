@@ -1,0 +1,8 @@
+{
+	"url": "String",
+	"title": "String",
+	"subreddit": "String",
+	"submitter": "String",
+	"upvotes": "Number",
+	"downvotes": "Number"
+}

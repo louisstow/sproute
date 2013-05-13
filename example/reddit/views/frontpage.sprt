@@ -1,0 +1,14 @@
+{include header.sprt}
+{get /data/link?sort=_id,desc&limit=25 as links}
+
+<ol>
+{each links as link}
+	<li>
+		<a href="{link.url}" target="_blank">{link.title}</a><br />
+		<small>
+			<a href="/r/{link.subreddit}">{link.subreddit}</a> |
+			<a href="/link/{link._id}">Comments</a>
+		</small>
+	</li>
+{/}
+</ol>

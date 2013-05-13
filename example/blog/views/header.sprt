@@ -8,9 +8,9 @@
 <a href="/write">Write</a> | 
 
 {if session.user}
+	Welcome, {session.user.name}, 
 	<a href="/logout">Logout</a>
 {else}
 	<a href="/login">Login</a>
-	
 {/}
 <hr />
