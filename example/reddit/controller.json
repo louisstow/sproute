@@ -4,5 +4,7 @@
 	"/u/:user": "profile",
 	"/link/:link": "link",
 	"/submit/:reddit": "submit",
-	"/submit": "submit"
+	"/submit": "submit",
+	"/login": "login",
+	"/register": "register"
 }

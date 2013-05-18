@@ -7,7 +7,6 @@ var HOST = "localhost";
 var PORT = 27017;
 var OPTS = {
 	w: 1,
-	capped: true,
 	size: 5000000, //5,000,000 byes = 5MB
 	strict: true
 };
@@ -70,12 +69,8 @@ function Storage (app, structure, server) {
 	});
 }
 
-/**
-* Insert data into a collection
-* through a REST api
-*/
-Storage.prototype.post = function (req, reqUrl, data, next) {
-	var query = url.parse(reqUrl, true);
+function parseRequest (req) {
+	var query = url.parse(req.url, true);
 	var parts = query.pathname.split("/");
 
 	//trim uneeded parts of the request
@@ -86,29 +81,95 @@ Storage.prototype.post = function (req, reqUrl, data, next) {
 	var table = parts[0];
 	var field = parts[1];
 	var value = parts[2];
+	var cmd   = parts[3];
 
-	if (parts.length === 3) {
+	return {
+		table: table,
+		field: field,
+		value: value,
+		cmd: cmd,
+		query: query.query, //query params
+		parts: parts.length
+	}
+}
+
+function parseData (data) {
+	console.log("BEFORE DATA", data);
+
+	//should not be multilevel object
+	//look for special data commands
+	for (var key in data) {
+		//restrict the data to 1 level of data, for now
+		if (typeof data[key] === "object") {
+			console.log("REMOVE", key, typeof data[key])
+			delete data[key];
+		}
+	}
+
+	console.log("PARSED DATA", data);
+	return data;
+}
+
+/**
+* Insert data into a collection
+* through a REST api
+*/
+Storage.prototype.post = function (req, data, next) {
+	var opts = parseRequest(req);
+
+	console.log("POST", opts, data)
+	data = parseData(data);
+
+	if (!opts.cmd) {
+		//need to use $set for updating
+		data = {"$set": data};
+	} else {
+		//format for the command
+		if (opts.cmd === "inc") {
+			data = {"$inc": data};
+		}
+	}
+
+	if (opts.parts >= 3) {
 		var query = {};
-		query[field] = value;
+		query[opts.field] = opts.value;
 
-		//update hidden fields
-		query['_lastUpdated'] = Date.now();
-		if (req.session && req.session.user) {
-			query['_lastUpdator'] = req.session.user._id;
-			query['_lastUpdatorName'] = req.session.user.name;
+		if (opts.field === "_id") {
+			//if this value is incorrect, dont crash
+			//the darn server
+			try {
+				query[opts.field] = mongo.ObjectID(opts.value);
+			} catch (e) {
+				return next({
+					error: "Invalid ID"
+				});
+			}
 		}
 
-		var opts = { upsert: false, multi: true, w: OPTS.w };
+		//update hidden fields
+		var metadata = {};
+		metadata['_lastUpdated'] = Date.now();
+		if (req.session && req.session.user) {
+			metadata['_lastUpdator'] = req.session.user._id;
+			metadata['_lastUpdatorName'] = req.session.user.name;
+		}
+
+		var qOpts = { upsert: false, multi: true, w: OPTS.w };
 
 		//dont create if it doesn't exist, apply to multiple
-		this.db.collection(table).update(query, data, opts, next);
+		this.db.collection(opts.table).update(query, data, qOpts, next);
+
+		this.db.collection(opts.table).update(query, {
+			"$set": metadata
+		}, function(){});
 	} else {
 		if (req.session && req.session.user) {
 			data['_creator'] = req.session.user._id;
 			data['_creatorName'] = req.session.user.name;
 		}
 
-		this.db.collection(table).insert(data, OPTS, next);
+		data['_created'] = Date.now();
+		this.db.collection(opts.table).insert(data, OPTS, next);
 	}
 };
 
@@ -117,47 +178,45 @@ Storage.prototype.post = function (req, reqUrl, data, next) {
 * through a REST api
 */
 Storage.prototype.get = function (req, next) {
-	var q = url.parse(req, true);
-	var parts = q.pathname.split("/");
+	var opts = parseRequest(req);
+	var queryOpts = {};
 
-	//trim uneeded parts of the request
-	if (parts[0] == '') { parts.splice(0, 1); }
-	if (parts[parts.length - 1] == '') { parts.splice(parts.length - 1, 1); }
-	if (parts[0] == 'data') { parts.splice(0, 1); }
-
-	var table = parts[0];
-	var field = parts[1];
-	var value = parts[2];
-
-	var opts = {};
-
-	if (q.query.limit) {
-		var limit = q.query.limit.split(",");
-		opts.limit = +limit[1] || +limit[0];
-		if (limit.length == 2) { opts.skip = +limit[0]; }
+	//parse limit options
+	if (opts.query.limit) {
+		var limit = opts.query.limit.split(",");
+		queryOpts.limit = +limit[1] || +limit[0];
+		if (limit.length == 2) { queryOpts.skip = +limit[0]; }
 	}
 
-	if (q.query.sort) {
-		var sort = q.query.sort.split(",");
+	//parse sorting option
+	if (opts.query.sort) {
+		var sort = opts.query.sort.split(",");
 		var sorter = sort[1] === "desc" ? -1 : 1;
-		opts.sort = [[sort[0], sorter]];
+		queryOpts.sort = [[sort[0], sorter]];
 	}
 
-	//3 parts means single item
-	if (parts.length === 3) {
+	if (opts.parts >= 3) {
 		var query = {};
-		query[field] = value;
+		query[opts.field] = opts.value;
 
-		if (field === "_id") {
-			query[field] = mongo.ObjectID(value);
+		if (opts.field === "_id") {
+			//if this value is incorrect, dont crash
+			//the darn server
+			try {
+				query[opts.field] = mongo.ObjectID(opts.value);
+			} catch (e) {
+				return next({
+					error: "Invalid ID"
+				});
+			}
 		}
 
-		this.db.collection(table).find(query, opts).toArray(function (err, arr) {
+		this.db.collection(opts.table).find(query, queryOpts).toArray(function (err, arr) {
 			if (err) {
 				return next(err);
 			}
 
-			if (q.query.single) {
+			if (opts.query.single) {
 				next(null, arr[0]);
 			} else {
 				next(null, arr);
@@ -165,8 +224,8 @@ Storage.prototype.get = function (req, next) {
 		});
 	}
 	//1 part means list data 
-	else if (parts.length === 1) {
-		this.db.collection(table).find({}, opts).toArray(next);
+	else if (opts.parts === 1) {
+		this.db.collection(opts.table).find({}, queryOpts).toArray(next);
 	}
 	else {
 		next(null, {error: "Invalid request"});

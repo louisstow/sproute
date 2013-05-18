@@ -2,6 +2,7 @@ var fs = require("fs");
 var path = require("path");
 var ff = require("ff");
 
+
 var entityMap = {
     "&": "&amp;",
     "<": "&lt;",
@@ -119,6 +120,7 @@ Greenhouse.prototype.render = function (template, data) {
     this.isError = !!this.compileErrors.length;
 
     if (this.isError) {
+        console.error("We found an error!")
         console.error(exports.compileErrors);
         return;
     }
@@ -153,11 +155,13 @@ function getLineFromIndex (template, index) {
     console.log(num + ":\t" + line);
 }
 
-Greenhouse.prototype.parseExpression = function (expr) {
+Greenhouse.prototype.parseExpression = function (expr, func) {
     var self = this;
 
     return expr && expr.replace(/:([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)/g, function (a, name) {
-        return Greenhouse.extractDots(name, self.data);
+        var result = Greenhouse.extractDots(name, self.data);
+        if (func) { result = func(result); }
+        return result;
     });
 }
 
@@ -178,26 +182,35 @@ Greenhouse.prototype.tokenize = function (template) {
 
     //loop over every fucking character :\
     for (var idx = 0; idx < template.length; ++idx) {
-        var char = template[idx];
+        var tag = template.substr(idx, 2);
 
         //open tag
-        if (char === '{') {
-            //already open
-            if (openTag !== -1) {
-                this.compileErrors.push("Tag already opened at `" + openTag + "`");
-                getLineFromIndex(template, openTag);
-                return;
+        if (tag === '{{') {
+            if (template[idx - 1] === "\\") {
+                continue;
             }
 
-            openTag = idx;
+            //already open
+            if (openTag !== -1) {
+                //this.compileErrors.push("Tag already opened at `" + openTag + "`");
+                getLineFromIndex(template, openTag);
+                //return;
+                continue;
+            }
+
+            openTag = idx + 1;
         }
 
         //closedTag
-        if (char === '}') {
+        if (tag === '}}') {
+            if (template[idx - 1] === "\\") {
+                continue;
+            }
+            
             if (openTag === -1) {
-                this.compileErrors.push("Tag not opened at" + idx);
+                //this.compileErrors.push("Tag not opened at" + idx);
                 getLineFromIndex(template, idx);
-                return;
+                continue;
             }
 
             //grab the expression from last open tag
@@ -211,22 +224,22 @@ Greenhouse.prototype.tokenize = function (template) {
             if (this.hooks[keyword]) {
                 token.type = keyword;
                 token.rawExpr = expression.substr(keyword.length).trim();
-                token.start = openTag;
-                token.end = idx;
+                token.start = openTag - 1;
+                token.end = idx + 1;
             }
             //check includes
             else if (expression.substr(0, 7).toLowerCase() === "include") {
                 token.type = types.INCLUDE;
                 token.path = expression.substr(8);
-                token.start = openTag;
-                token.end = idx;
+                token.start = openTag - 1;
+                token.end = idx + 1;
             }
             //a conditional statement
             else if (expression.substr(0, 2).toLowerCase() === "if") {
                 token.type = types.CONDITION;
                 token.expr = expression.substr(3);
-                token.startTrue = idx + 1;
-                token.start = openTag;
+                token.startTrue = idx + 2;
+                token.start = openTag - 1;
                 
                 var ifOptions = token.expr.split(spaceRx);
                 token.thing = ifOptions[0];
@@ -256,15 +269,15 @@ Greenhouse.prototype.tokenize = function (template) {
             }
             //an else statement
             else if (expression.toLowerCase() === "else") {
-                token.skipFrom = openTag;
-                token.skipTo = idx + 1;
+                token.skipFrom = openTag - 1;
+                token.skipTo = idx + 2;
                 token.type = "else";
                 var lastCondition = openCondition.pop();
                 
                 //save pointers to the start and end
                 //of the else
-                lastCondition.endTrue = openTag;
-                lastCondition.startFalse = idx + 1;
+                lastCondition.endTrue = openTag - 1;
+                lastCondition.startFalse = idx + 2;
                 lastCondition.else = true;
 
                 parent = lastCondition.onFalse;
@@ -273,8 +286,8 @@ Greenhouse.prototype.tokenize = function (template) {
             //loop
             else if (expression.substr(0, 4).toLowerCase() === "each") {
                 token.type = types.LOOP;
-                token.startLoop = idx + 1;
-                token.start = openTag;
+                token.startLoop = idx + 2;
+                token.start = openTag - 1;
                 token.loop = [];
 
                 //parse the loop expression
@@ -292,16 +305,16 @@ Greenhouse.prototype.tokenize = function (template) {
             //close the last expression
             else if (expression[0] === '/') {
                 //skip the entire tag
-                token.skipFrom = openTag;
-                token.skipTo = idx + 1;
+                token.skipFrom = openTag - 1;
+                token.skipTo = idx + 2;
 
                 //need to swap the parent
                 //to the parent of the last condition
                 var lastCondition = openCondition.pop();
 
                 //save a pointer to the end of condition
-                if (lastCondition.else) { lastCondition.endFalse = idx + 1; }
-                else { lastCondition.endTrue = idx + 1; }
+                if (lastCondition.else) { lastCondition.endFalse = idx + 2; }
+                else { lastCondition.endTrue = idx + 2; }
 
                 parent = lastCondition.parent;
                 delete lastCondition.parent;
@@ -309,8 +322,8 @@ Greenhouse.prototype.tokenize = function (template) {
             //placeholder
             else {
                 token.type = types.VAR;
-                token.start = openTag + 1;
-                token.end = idx;
+                token.start = openTag;
+                token.end = idx + 1;
                 token.placeholder = expression;
             }
 
@@ -320,7 +333,7 @@ Greenhouse.prototype.tokenize = function (template) {
     }
 
     if (openTag !== -1) {
-        this.compileErrors.push("Tag not closed at " + openTag);
+        //this.compileErrors.push("Tag not closed at " + openTag);
         getLineFromIndex(template, openTag);
         return;
     }
@@ -507,7 +520,9 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                         next.call(this);
                     }.bind(this));
                 } else {
-                    this.start = block.end + 1;
+                    console.log("NO HOOK", block.expr)
+                    this.pieces.push(template.substring(this.start, block.end));
+                    this.start = block.end;
                     return next();
                 }
 

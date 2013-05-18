@@ -3,6 +3,7 @@ var ff = require("ff");
 var fs = require("fs");
 var _ = require("underscore");
 var express = require("express");
+var mathjs = require("mathjs");
 
 var Storage = require("./storage");
 var Greenhouse = require("./greenhouse");
@@ -39,7 +40,9 @@ App.prototype = {
 			"views": "views",
 			"controller": "controller.json",
 			"extension": "sprt",
-			"secret": this.name.toUpperCase()
+			"secret": this.name.toUpperCase(),
+			"static": "public",
+			"cacheViews": false
 		};
 
 		try {
@@ -59,7 +62,9 @@ App.prototype = {
 	    server.use(express.cookieParser(secret));
 	    server.use(express.session({secret: secret, cookie: {maxAge: null}}));
 
-	    server.use(express.static("./public", { maxAge: 1 }));
+	    var staticDir = path.join(this.dir, this.config.static);
+	    console.log(this.config.static, staticDir)
+	    server.use("/" + this.config.static, express.static(staticDir, { maxAge: 1 }));
 	    server.use(express.bodyParser());
 
 	    this.config.port = this.config.port || 8089;
@@ -99,13 +104,7 @@ App.prototype = {
 		this.storage = new Storage(this.name, structure);
 	},
 
-	/**
-	* Setup the routes from the controller. Handle
-	* the requests and start an instance of the greenhouse
-	* template parser.
-	*/
-	initRoute: function (route, view) {
-
+	loadView: function (view, next) {
 		var viewPath = path.join(this.dir, this.config.views, view + "." + this.config.extension);
 
 		var f = ff(this, function () {
@@ -122,20 +121,26 @@ App.prototype = {
 		}, function (template) {
 			//cache the view
 			this._viewCache[view] = template.toString();
+			f.pass(this._viewCache[view])
 		}).error(function (e) {
 			console.error("Error loading the view template.", "[" + viewPath + "]")
 			console.error(e);
-		});
+		}).cb(next);
+	},
 
+	/**
+	* Setup the routes from the controller. Handle
+	* the requests and start an instance of the greenhouse
+	* template parser.
+	*/
+	initRoute: function (route, view) {
+		this.loadView(view);
+		
 		//handle the route
 		var self = this;
 		this.server.get(route, function (req, res) {
 			console.log("GET", route, view, req.params, req.query);
-			
-			//grab the template from the cache
-			var template = self._viewCache[view];
 			var data = {};
-
 			//build the data to pass into template
 			_.extend(data, {
 				params: req.params, 
@@ -147,13 +152,26 @@ App.prototype = {
 				}
 			});
 
-			//render and send it back to client
-			var g = new Greenhouse(self.hooks);
-			g.oncompiled = function (html) {
-				res.send(html);
-			};
+			var f = ff(self, function () {
+				//grab the template from the cache
+				if (this.config.cacheViews) {
+					f.pass(this._viewCache[view]);
+				} else {
+					this.loadView(view, f.slot());
+				}
+			}, function (template) {
+				//render and send it back to client
+				var g = new Greenhouse(this.hooks);
+				g.oncompiled = function (html) {
+					res.send(html);
+				};
 
-			g.render(template, data);
+				g.onerror = function (error) {
+					res.json(error);
+				}
+
+				g.render(template, data);
+			});
 		});
 	},
 
@@ -171,11 +189,30 @@ App.prototype = {
 				var url = expr[0];
 				console.log("hook get", expr, key, url)
 				//request the data then continue parsing
-				app.storage.get(url, function (err, data) {
+				app.storage.get({url: url}, function (err, data) {
 					console.log("get cmd", url, data, key)
 					this.data[key] = data;
 					next();
 				}.bind(this));
+			},
+
+			expr: function (block, next) {
+				var expr = this.parseExpression(block.rawExpr, function (n) {
+					return parseInt(n, 10) || 0;
+				});
+
+				var result = 0;
+
+				console.log("MATH EXPR", expr);
+				try {
+					result = mathjs.eval(expr).toString();
+				} catch (e) {
+					result = "Error";
+				}
+
+				this.pieces.push(result);
+				this.start = block.end + 1;
+				next();
 			}
 		};
 	},
@@ -194,7 +231,7 @@ App.prototype = {
 	},
 
 	handleGET: function (req, res) {
-		this.storage.get(req.url, function (err, response) {
+		this.storage.get(req, function (err, response) {
 			if (err) {
 				console.error("Error in storage method", req.url, "GET");
 				console.error(err);
@@ -204,7 +241,8 @@ App.prototype = {
 	},
 
 	handlePOST: function (req, res) {
-		this.storage.post(req, req.url, req.body, function (err, response) {
+		console.log("BODY", req.body)
+		this.storage.post(req, req.body, function (err, response) {
 			if (err) {
 				console.error("Error in storage method", req.url, "POST");
 				console.error(err);
@@ -264,9 +302,13 @@ App.prototype = {
 	},
 
 	logout: function (req, res) {
+		req.session.destroy();
 		req.session = null;
+
 		if (req.query.goto) {
 			res.redirect(req.query.goto);
+		} else {
+			res.send(200);
 		}
 	},
 
