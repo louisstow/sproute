@@ -1,0 +1,9 @@
+<h3><a href="/">Reddit</a> Clone</h3>
+<a href="/submit/">Submit</a>
+{{if session.user}}
+	<a href="/u/{{session.user.name}}">{{session.user.name}}</a>
+	<a href="/api/logout">Logout</a>
+{{else}}
+	<a href="/login">Login</a>
+	<a href="/register">Register</a>
+{{/}}

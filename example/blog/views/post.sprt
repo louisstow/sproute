@@ -1,0 +1,7 @@
+{get /data/posts/_id/:params.id?single=true as post}
+{set title :post.title}
+
+{include header.sprt}
+<h1>{post.title}</h1>
+<div>{#post.post}</div>
+{include footer.sprt}

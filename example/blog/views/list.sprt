@@ -1,0 +1,8 @@
+{set title Home}
+{include header.sprt}
+{get /data/posts?sort=_id,desc as posts}
+{each posts as post}
+	<h2><a href="/post/{post._id}/">{post.title}</a></h2>
+	<div class="post">{#post.post}</div>
+{/each}
+{include footer.sprt}

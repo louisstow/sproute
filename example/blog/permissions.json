@@ -1,0 +1,11 @@
+{
+	"POST /data/posts": {
+		"anyone": false,
+		"user": true
+	},
+
+	"GET /write": {
+		"anyone": false,
+		"user": true
+	}
+}

@@ -1,0 +1,21 @@
+{{include header.sprt}}
+{{get /data/link/_id/:params.link?single=true as link}}
+
+<h2><a href="{{link.url}}">{{link.title}}</a></h2>
+<hr />
+<h3>Comments</h3>
+<form action="/data/comments?goto={{self.url}}" method="post">
+<textarea name="body"></textarea>
+<input type="hidden" name="submitter" value="{{session.user.name}}" />
+<input type="hidden" name="link" value="{{params.link}}" />
+<button type="submit">Make comment</button>
+</form>
+
+{{get /data/comments/link/:params.link as comments}}
+
+<ul>
+{{each comments as comment}}
+	<li>{{comment.body}}<br />
+		<small><a href="{{comment.submitter}}">{{comment.submitter}}</a></small>
+{{/each}}
+</ul>

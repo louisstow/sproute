@@ -1,0 +1,7 @@
+{{include header.sprt}}
+
+<form action="/data/users?goto=/login" method="post">
+Username: <input type="text" name="name" /><br />
+Password: <input type="password" name="pass" /><br />
+<button type="submit">Register</button>
+</form>
