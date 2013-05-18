@@ -17,8 +17,9 @@ function App (name, dir, server) {
 	this.loadConfig();
 	this.server = this.loadServer();
 
-	this.loadController();
 	this.loadModel();
+	this.loadPermissions();
+	this.loadController();
 
 	this.loadHook();
 
@@ -82,11 +83,13 @@ App.prototype = {
 	* Load the controller JSON file.
 	*/
 	loadController: function () {
+		var controllerPath = path.join(this.dir, this.config.controller);
+
 		try {
 			console.log(this.config, this.dir)
-			this.controller = JSON.parse(fs.readFileSync(path.join(this.dir, this.config.controller)));
+			this.controller = JSON.parse(fs.readFileSync(controllerPath));
 		} catch (e) {
-			console.error("Controller at path: [" +  + "] not found.");
+			console.error("Controller at path: [" + controllerPath + "] not found.");
 			console.error(e);
 			console.error(e.stack);
 		}
@@ -107,7 +110,63 @@ App.prototype = {
 			structure[table] = JSON.parse(fs.readFileSync(path.join(modelPath, file)).toString());
 		}
 
-		this.storage = new Storage(this.name, structure);
+		this.storage = new Storage({
+			name: this.name, 
+			structure: structure,
+			config: this.config
+		});
+	},
+
+	loadPermissions: function () {
+		var permissionsPath = path.join(this.dir, "permissions.json");
+
+		try {
+			this.permissions = JSON.parse(fs.readFileSync(permissionsPath));
+		} catch (e) {
+			console.error("permissions at path: [" + permissionsPath + "] not found.");
+			console.error(e);
+			console.error(e.stack);
+		}
+
+		for (var url in this.permissions) {
+			var parts = url.split(" ");
+			var method = parts[0].toLowerCase();
+			var route = parts[1];
+			var user = this.permissions[url];
+
+			//more closures
+			(function (method, route, user) {
+				var self = this;
+
+				this.server[method](route, function (req, res, next) {
+					console.log("PERMISSION", method, route, user);
+					var flag = false;
+
+					if (user === "stranger") {
+						if (req.session && req.session.user) {
+							flag = true;
+						}
+					}
+					else if (user === "member") {
+						if (!req.session.user) {
+							flag = true;
+						}
+					}
+					else if (user === "anyone") {
+						flag = false;
+					}
+					else {
+						var role = req.session.user && req.session.user.role || "stranger";
+						flag = !self.storage.inheritRole(role, user);
+					}
+
+					if (flag) {
+						return res.json({error: "You do not have permission to visit this page"})
+					} else next();
+				});
+			}).call(this, method, route, user)
+			
+		}
 	},
 
 	loadView: function (view, next) {
@@ -287,7 +346,7 @@ App.prototype = {
 	},
 
 	login: function (req, res) {
-		this.storage.get("/data/users/name/" + req.body.name, function (err, data) {
+		this.storage.get({url: "/data/users/name/" + req.body.name}, function (err, data) {
 			console.log("err", data);
 			if (err || !data.length) {
 				return res.json({error: "User not found"});

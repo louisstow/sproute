@@ -16,28 +16,32 @@ var OPTS = {
 var userStructure = {
 	name: {type: "String", minlen: 3},
 	email: {type: "String", minlen: 3},
-	pass: {type: "String", minlen: 3}
+	pass: {type: "String", minlen: 3},
+	role: {type: "String", values: ["admin", "member"], default: "member"}
 };
 
-function Storage (app, structure, server) {
-	this.app = app;
-	this.db = new mongo.Db(app, new mongo.Server(HOST, PORT), OPTS);
-	this.structure = structure;
+function Storage (opts) {
+	this.app = opts.name;
+	this.db = new mongo.Db(opts.name, new mongo.Server(HOST, PORT), OPTS);
+	this.structure = opts.structure;
+	this.config = opts.config;
 
 	//every app needs a users collection
-	if (!structure.users) {
-		structure.users = userStructure;
+	console.log(this.structure.users)
+	if (!this.structure.users) {
+		this.structure.users = userStructure;
 	} else {
 		//allow customization of the structure
-		_.extend(structure.users, userStructure);
+		_.defaults(this.structure.users, userStructure);
 	}
+	console.log(this.structure.users)
 
 	var self = this;
 	this.db.open(function (err, db) {
 		//log the result
 		console.log(
 			err ? "Error connecting to" : "Connected to", 
-			app, "on", HOST + ":" + PORT
+			opts.name, "on", HOST + ":" + PORT
 		);
 
 		if (err) {
@@ -46,17 +50,26 @@ function Storage (app, structure, server) {
 
 		self.onready && self.onready.call(self);
 
-		for (var table in structure) {
+		for (var table in opts.structure) {
 			//horray, a fucking closure
 			(function (table) {
 				db.createCollection(table, OPTS, function (err) {
 					console.log("Collection created", err, table);
 					if (!err && table === "users") {
-						//this should come from somewhere else
-						db.collection("users").insert({
+						//minimal admin user object
+						var admin = this.config.admin || {
 							name: "admin",
 							email: "admin@admin.com",
-							pass: "admin"
+							pass: "admin",
+							role: "admin"
+						};
+
+						//this should come from somewhere else
+						db.collection("users").insert({
+							name: admin.name,
+							email: admin.email,
+							pass: admin.pass,
+							role: admin.role
 						}, function () {});
 					}
 				});
@@ -103,7 +116,19 @@ function parseRequest (req) {
 	}
 }
 
-Storage.prototype.validateData = function (required, data, table) {
+Storage.prototype.inheritRole = function (test, role) {
+	var roleIndex = this.structure.users.role.values.indexOf(role);
+	var testIndex = this.structure.users.role.values.indexOf(test);
+	console.log("TEST ROLE", roleIndex, testIndex, test, role)
+
+	if (roleIndex === -1 || testIndex === -1) {
+		return false;
+	}
+
+	return (testIndex <= roleIndex);
+}
+
+Storage.prototype.validateData = function (type, data, table) {
 	var rules = this.structure[table];
 	var errors = {};
 	var errorFlag = false;
@@ -120,7 +145,7 @@ Storage.prototype.validateData = function (required, data, table) {
 		}
 	}
 
-	if (required) {
+	if (type === "insert") {
 		for (var key in rules) {
 			if (!data[key]) {
 				//required value so create error
@@ -164,7 +189,7 @@ Storage.prototype.post = function (req, body, next) {
 		var query = {};
 		query[opts.field] = opts.value;
 
-		var errors = this.validateData(false, body, opts.table);
+		var errors = this.validateData("update", body, opts.table);
 
 		//return an error if validation failed.
 		if (errors) {
@@ -188,7 +213,7 @@ Storage.prototype.post = function (req, body, next) {
 			"$set": metadata
 		}, function(){});
 	} else {
-		var errors = this.validateData(true, data, opts.table);
+		var errors = this.validateData("insert", data, opts.table);
 
 		//return an error if validation failed.
 		if (errors) {
