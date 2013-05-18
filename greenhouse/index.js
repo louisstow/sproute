@@ -121,7 +121,8 @@ Greenhouse.prototype.render = function (template, data) {
 
     if (this.isError) {
         console.error("We found an error!")
-        console.error(exports.compileErrors);
+        console.error(this.compileErrors);
+        this.onerror && this.onerror.call(this, this.compileErrors);
         return;
     }
 
@@ -153,6 +154,7 @@ function getLineFromIndex (template, index) {
     }
 
     console.log(num + ":\t" + line);
+    return num + ":\t" + line;
 }
 
 Greenhouse.prototype.parseExpression = function (expr, func) {
@@ -206,7 +208,7 @@ Greenhouse.prototype.tokenize = function (template) {
             if (template[idx - 1] === "\\") {
                 continue;
             }
-            
+
             if (openTag === -1) {
                 //this.compileErrors.push("Tag not opened at" + idx);
                 getLineFromIndex(template, idx);
@@ -216,7 +218,13 @@ Greenhouse.prototype.tokenize = function (template) {
             //grab the expression from last open tag
             var expression = template.substring(openTag + 1, idx).trim();
 
-            var token =  {};
+            var token = {};
+            if (!parent) {
+                this.compileErrors.push("Unclosed tag")
+                this.compileErrors.push(getLineFromIndex(template, idx));
+                continue;
+            }
+
             parent.push(token);
 
             var keyword = expression.split(" ")[0].toLowerCase();
@@ -357,6 +365,13 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
             case types.INCLUDE:
                 this.pieces.push(template.substring(this.start, block.start - 1))
                 this.start = block.end + 1;
+                
+                //trying to include file outside of
+                //directory
+                if (block.path.indexOf("..") !== -1) {
+                    return next();
+                }
+
                 var viewPath = path.join(this.data.self.dir, block.path);
 
                 var f = ff(this, function () {
@@ -370,7 +385,7 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                     fs.readFile(viewPath, f.slot());
                 }, function (contents) {
                     if (contents === "") {
-                        return this.pass(contents);
+                        return f.pass(contents);
                     }
 
                     contents = contents.toString();

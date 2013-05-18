@@ -1,4 +1,5 @@
 {{include header.sprt}}
+
 {{get /data/link?sort=_id,desc&limit=25 as links}}
 
 
@@ -7,10 +8,11 @@
 {{each links as link}}
 	<li>
 		<a onclick="sendPost('/data/link/_id/{{link._id}}/inc', {upvote: 1})">▲</a>
+		<a onclick="sendPost('/data/link/_id/{{link._id}}/inc', {downvote: 1})">▼</a>
 		<strong>
 			{{expr :link.upvote - :link.downvote}}
 		</strong>
-		<a href="{{link.url}}" target="_blank">{{link.title}}</a><br />
+		<a href="{{link.ur}}" target="_blank">{{link.title}}</a><br />
 		<small>
 			<a href="/r/{{link.subreddit}}">{{link.subreddit}}</a> |
 			<a href="/link/{{link._id}}">Comments</a>

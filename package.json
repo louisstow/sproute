@@ -2,7 +2,8 @@
   "name": "Sproute",
   "description": "Instant community site builder",
   "author": "Louis Stowasser",
-  "version": "0.0.1",
+  "version": "1.0",
+  
   "dependencies": {
     "express": "3.0.0",
     "ff": "0.0.18",

@@ -1,8 +1,7 @@
 {
-	"url": "String",
-	"title": "String",
-	"subreddit": "String",
-	"submitter": "String",
-	"upvotes": "Number",
-	"downvotes": "Number"
+	"url": {"type": "String", "required": true},
+	"title": {"type": "String", "required": true},
+	"subreddit": {"type": "String", "required": true},
+	"upvotes": {"type": "Number", "default": 0},
+	"downvotes": {"type": "Number", "default": 0}
 }

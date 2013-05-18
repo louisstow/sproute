@@ -3,6 +3,8 @@ var ff = require("ff");
 var url = require("url");
 var _ = require("underscore");
 
+var validation = require("./validation");
+
 var HOST = "localhost";
 var PORT = 27017;
 var OPTS = {
@@ -12,16 +14,15 @@ var OPTS = {
 };
 
 var userStructure = {
-	name: "String",
-	email: "String",
-	pass: "String"
+	name: {type: "String", minlen: 3},
+	email: {type: "String", minlen: 3},
+	pass: {type: "String", minlen: 3}
 };
 
 function Storage (app, structure, server) {
 	this.app = app;
 	this.db = new mongo.Db(app, new mongo.Server(HOST, PORT), OPTS);
-
-	var self = this;
+	this.structure = structure;
 
 	//every app needs a users collection
 	if (!structure.users) {
@@ -31,6 +32,7 @@ function Storage (app, structure, server) {
 		_.extend(structure.users, userStructure);
 	}
 
+	var self = this;
 	this.db.open(function (err, db) {
 		//log the result
 		console.log(
@@ -43,6 +45,7 @@ function Storage (app, structure, server) {
 		}
 
 		self.onready && self.onready.call(self);
+
 		for (var table in structure) {
 			//horray, a fucking closure
 			(function (table) {
@@ -57,11 +60,8 @@ function Storage (app, structure, server) {
 						}, function () {});
 					}
 				});
-			})(table)
-			
+			})(table)	
 		}
-
-
 	});
 
 	this.db.on("error", function () {
@@ -83,6 +83,16 @@ function parseRequest (req) {
 	var value = parts[2];
 	var cmd   = parts[3];
 
+	if (field == "_id") {
+		//if this value is incorrect, dont crash
+		//the darn server
+		try {
+			value = mongo.ObjectID(value);
+		} catch (e) {
+			value = "";
+		}
+	}
+
 	return {
 		table: table,
 		field: field,
@@ -93,40 +103,60 @@ function parseRequest (req) {
 	}
 }
 
-function parseData (data) {
-	console.log("BEFORE DATA", data);
+Storage.prototype.validateData = function (required, data, table) {
+	var rules = this.structure[table];
+	var errors = {};
+	var errorFlag = false;
 
 	//should not be multilevel object
 	//look for special data commands
 	for (var key in data) {
-		//restrict the data to 1 level of data, for now
-		if (typeof data[key] === "object") {
-			console.log("REMOVE", key, typeof data[key])
-			delete data[key];
+		if (rules[key]) {
+			var error = validation.test(data[key], rules[key]);
+			if (error.length) {
+				errors[key] = error;
+				errorFlag = true;
+			}
 		}
 	}
 
-	console.log("PARSED DATA", data);
-	return data;
+	if (required) {
+		for (var key in rules) {
+			if (!data[key]) {
+				//required value so create error
+				if (rules[key].required) {
+					errors[key] = "Cannot find required field: " + key;
+					errorFlag = true;
+				}
+				//default value
+				else if ("default" in rules[key]) {
+					data[key] = rules[key]["default"];
+				}
+			}
+		}
+	}
+	
+	return errorFlag && errors;
 }
 
 /**
 * Insert data into a collection
 * through a REST api
 */
-Storage.prototype.post = function (req, data, next) {
+Storage.prototype.post = function (req, body, next) {
 	var opts = parseRequest(req);
-
-	console.log("POST", opts, data)
-	data = parseData(data);
+	var data = body;
 
 	if (!opts.cmd) {
 		//need to use $set for updating
-		data = {"$set": data};
+		//update when there are 3 url parts
+		if (opts.parts >= 3) {
+			data = {"$set": body};
+		}
 	} else {
 		//format for the command
 		if (opts.cmd === "inc") {
-			data = {"$inc": data};
+			data = {"$inc": body};
 		}
 	}
 
@@ -134,16 +164,11 @@ Storage.prototype.post = function (req, data, next) {
 		var query = {};
 		query[opts.field] = opts.value;
 
-		if (opts.field === "_id") {
-			//if this value is incorrect, dont crash
-			//the darn server
-			try {
-				query[opts.field] = mongo.ObjectID(opts.value);
-			} catch (e) {
-				return next({
-					error: "Invalid ID"
-				});
-			}
+		var errors = this.validateData(false, body, opts.table);
+
+		//return an error if validation failed.
+		if (errors) {
+			return next(errors);
 		}
 
 		//update hidden fields
@@ -163,6 +188,13 @@ Storage.prototype.post = function (req, data, next) {
 			"$set": metadata
 		}, function(){});
 	} else {
+		var errors = this.validateData(true, data, opts.table);
+
+		//return an error if validation failed.
+		if (errors) {
+			return next(errors);
+		}
+
 		if (req.session && req.session.user) {
 			data['_creator'] = req.session.user._id;
 			data['_creatorName'] = req.session.user.name;
@@ -199,18 +231,6 @@ Storage.prototype.get = function (req, next) {
 		var query = {};
 		query[opts.field] = opts.value;
 
-		if (opts.field === "_id") {
-			//if this value is incorrect, dont crash
-			//the darn server
-			try {
-				query[opts.field] = mongo.ObjectID(opts.value);
-			} catch (e) {
-				return next({
-					error: "Invalid ID"
-				});
-			}
-		}
-
 		this.db.collection(opts.table).find(query, queryOpts).toArray(function (err, arr) {
 			if (err) {
 				return next(err);
@@ -237,26 +257,17 @@ Storage.prototype.get = function (req, next) {
 * through a REST api
 */
 Storage.prototype.delete = function (req, next) {
-	var query = url.parse(req, true);
-	var parts = query.pathname.split("/");
+	var opts = parseRequest(req);
 
-	//trim uneeded parts of the request
-	if (parts[0] == '') { parts.splice(0, 1); }
-	if (parts[parts.length - 1] == '') { parts.splice(parts.length - 1, 1); }
-	if (parts[0] == 'data') { parts.splice(0, 1); }
-
-	var table = parts[0];
-	var field = parts[1];
-	var value = parts[2];
-
-	if (parts.length === 3) {
+	if (opts.parts >= 3) {
 		var query = {};
-		query[field] = value;
+		query[opts.field] = opts.value;
 
 		//dont create if it doesn't exist, apply to multiple
-		this.db.collection(table).remove(query, OPTS, next);
+		this.db.collection(opts.table).remove(query, OPTS, next);
 	} else {
-		this.db.collection(table).remove({}, OPTS, next);
+		//truncate table
+		this.db.collection(opts.table).remove({}, OPTS, next);
 	}
 };
 

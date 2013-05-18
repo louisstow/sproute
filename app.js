@@ -67,6 +67,12 @@ App.prototype = {
 	    server.use("/" + this.config.static, express.static(staticDir, { maxAge: 1 }));
 	    server.use(express.bodyParser());
 
+	    server.use(function (err, req, res, next) {
+	    	if (err) {
+	    		res.json(err);
+	    	} else next();
+	    });
+
 	    this.config.port = this.config.port || 8089;
 	    server.listen(this.config.port);
 	    return server;
@@ -246,6 +252,7 @@ App.prototype = {
 			if (err) {
 				console.error("Error in storage method", req.url, "POST");
 				console.error(err);
+				return res.send(JSON.stringify(err));
 			}
 
 			if (req.query.goto) {
@@ -257,7 +264,7 @@ App.prototype = {
 	},
 
 	handleDELETE: function (req, res) {
-		this.storage.delete(req.url, function (err, response) {
+		this.storage.delete(req, function (err, response) {
 			if (err) {
 				console.error("Error in storage method", req.url, "DELETE");
 				console.error(err);
