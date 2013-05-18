@@ -1,0 +1,10 @@
+{
+	"/": "frontpage",
+	"/r/:reddit": "subreddit",
+	"/u/:user": "profile",
+	"/link/:link": "link",
+	"/submit/:reddit": "submit",
+	"/submit": "submit",
+	"/login": "login",
+	"/register": "register"
+}

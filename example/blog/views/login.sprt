@@ -1,0 +1,7 @@
+{include header.sprt}
+<form action="/api/login" method="post">
+Username: <input type="text" name="name" /> <br />
+Password: <input type="password" name="pass" /> <br />
+<button type="submit">Login</button>
+</form>
+{include footer.sprt}

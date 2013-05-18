@@ -1,0 +1,6 @@
+{{include header.sprt}}
+<form action="/api/login?goto=/" method="post">
+Username: <input type="text" name="name" /><br />
+Password: <input type="password" name="pass" /><br />
+<button type="submit">Login</button>
+</form>

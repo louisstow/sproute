@@ -1,0 +1,7 @@
+{include header.sprt}
+<form action="/data/posts?goto=/" method="post">
+	Title: <input type="text" name="title" /><br />
+	<textarea name="post"></textarea><br />
+	<button type="submit">Write</button>
+</form>
+{include footer.sprt}
