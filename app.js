@@ -4,6 +4,7 @@ var fs = require("fs");
 var _ = require("underscore");
 var express = require("express");
 var mathjs = require("mathjs");
+var pwd = require("pwd");
 
 var Storage = require("./storage");
 var Greenhouse = require("./greenhouse");
@@ -297,7 +298,6 @@ App.prototype = {
 
 				//request the data then continue parsing
 				app.storage.get({url: url, permission: permission}, function (err, data) {
-					console.log("get cmd", url, data, key)
 					this.data[key] = data;
 					next();
 				}.bind(this));
@@ -308,13 +308,11 @@ App.prototype = {
 					return parseInt(n, 10) || 0;
 				});
 
-				var result = 0;
-
-				console.log("MATH EXPR", expr);
+				var result = "0";
 				try {
 					result = mathjs.eval(expr).toString();
 				} catch (e) {
-					result = "Error";
+					result = "[MathError]";
 				}
 
 				this.pieces.push(result);
@@ -329,59 +327,36 @@ App.prototype = {
 	* to the model.
 	*/
 	loadREST: function () {
+		//don't use the default REST api for creating a user
+		this.server.post(/\/data\/users\/?$/, this.register.bind(this));
+
+		//rest endpoints
 		this.server.get("/data/*", this.handleGET.bind(this));
 		this.server.post("/data/*", this.handlePOST.bind(this));
 		this.server.delete("/data/*", this.handleDELETE.bind(this));
 
+		//api endpoints
 		this.server.get("/api/logged", this.getLogged.bind(this));
 		this.server.post("/api/login", this.login.bind(this));
 		this.server.post("/api/logout", this.logout.bind(this));
+		this.server.post("/api/register", this.register.bind(this));
 	},
 
 	/**
 	* REST handlers
 	*/
 	handleGET: function (req, res) {
-		console.log("HERE?", req.permission)
-		this.storage.get(req, function (err, response) {
-			if (err) {
-				console.error("Error in storage method", req.url, "GET");
-				console.error(err);
-			}
-			res.json(response);
-		});
+		//forward the request to storage
+		this.storage.get(req, this.response(req, res));
 	},
 
 	handlePOST: function (req, res) {
-		console.log("BODY", req.body)
-		this.storage.post(req, req.body, function (err, response) {
-			if (err) {
-				console.error("Error in storage method", req.url, "POST");
-				console.error(err);
-				return res.send(JSON.stringify(err));
-			}
-
-			if (req.query.goto) {
-				res.redirect(req.query.goto);
-			}
-
-			res.json(response);
-		});
+		//forward the post data to storage
+		this.storage.post(req, req.body, this.response(req, res));
 	},
 
 	handleDELETE: function (req, res) {
-		this.storage.delete(req, function (err, response) {
-			if (err) {
-				console.error("Error in storage method", req.url, "DELETE");
-				console.error(err);
-			}
-
-			if (req.query.goto) {
-				res.redirect(req.query.goto);
-			}
-
-			res.json(response);
-		});
+		this.storage.delete(req, this.response(req, res));
 	},
 
 	/**
@@ -399,16 +374,21 @@ App.prototype = {
 		var url = "/data/users/name/" + req.body.name;
 		var permission = this.testRoute("get", url);
 
-		this.storage.get({url: url, permission: permission}, function (err, data) {
-			console.log("err", data);
-			if (err || !data.length) {
-				return res.json({error: "User not found"});
-			}
+		var f = ff(this, function () {
+			this.storage.get({url: url, permission: permission}, f.slot());
+		}, function (data) {
+			//no user found, throw error
+			if (!data.length) { f.fail({error: "No username found."}); }
 
 			var user = data[0];
-			if (user.pass === req.body.pass) {
+			f.pass(user);
+			pwd.hash(req.body.pass, user._salt, f.slot());
+		}, function (user, pass) {
+			console.log("WTF", user, pass)
+			if (user.pass === pass.toString("base64")) {
 				req.session.user = _.extend({}, user);
 				delete req.session.user.pass;
+				delete req.session.user._salt;
 				res.json(req.session.user);
 			} else {
 				res.json({error: "Username and password mismatch"})
@@ -417,7 +397,7 @@ App.prototype = {
 			if (req.query.goto) {
 				res.redirect(req.query.goto);
 			}
-		});
+		}).error(this.errorHandler(req, res));
 	},
 
 	logout: function (req, res) {
@@ -431,10 +411,66 @@ App.prototype = {
 		}
 	},
 
-	hashPassword: function (pass) {
-		var hash = crypto.createHash("sha256");
-		hash.update(pass);
-		return hash.digest("hex");
+	/**
+	* Must go through the /api/register endpoint
+	* If logged in, can only create a role equal to or less than current
+	* If not, cannot specify role
+	*/
+	register: function (req, res) {
+		var url = "/data/users/";
+
+		if (req.session.user) {
+			if (req.body.role && !this.storage.inheritRole(req.session.user.role, req.body.role)) {
+				return res.json({error: "Cannot create that role"});
+			}
+		} else {
+			if (req.body.role) {
+				return res.json({error: "Cannot create that role"});
+			}
+		}
+
+		//for some reason FF doesnt work with pwd...
+		var self = this;
+		pwd.hash(req.body.pass.toString(), function (err, salt, hash) {
+			req.body._salt = salt;
+			req.body.pass = hash;
+			console.log("PASS", req.body.pass)
+
+			self.storage.post({url: url}, req.body, self.response(req, res));
+		});
+	},
+
+	/**
+	* Create a callback function handle a response
+	* from the storage instance.
+	*/
+	response: function (req, res) {
+		return function (err, response) {
+			if (err) {
+				return this.errorHandler(req, res)(err);
+			}
+
+			if (req.query.goto) {
+				res.redirect(req.query.goto);
+			}
+
+			res.json(response);
+		}
+	},
+
+	/**
+	* Create an error handler function
+	*/
+	errorHandler: function (req, res) {
+		return function (err) {
+			//log to the server
+			console.error("-----------");
+			console.error("Error occured during %s %s", req.method.toUpperCase(), req.url)
+			console.error(err);
+			console.error("-----------");
+
+			res.json(err)
+		}
 	}
 };
 

@@ -57,7 +57,7 @@ function Storage (opts) {
 					console.log("Collection created", err, table);
 					if (!err && table === "users") {
 						//minimal admin user object
-						var admin = this.config.admin || {
+						var admin = self.config.admin || {
 							name: "admin",
 							email: "admin@admin.com",
 							pass: "admin",
@@ -279,6 +279,7 @@ Storage.prototype.post = function (req, body, next) {
 			"$set": metadata
 		}, function(){});
 	} else {
+		console.log("WHAT IS DATA?", data)
 		//validate the data against the rules
 		var errors = this.validateData(
 			"insert", 

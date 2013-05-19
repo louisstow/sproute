@@ -5,5 +5,6 @@
 	"POST /api/login": "stranger",
 	"GET /login": "stranger",
 	"POST /register": "stranger",
-	"GET /register": "stranger"
+	"GET /register": "stranger",
+	"POST /data/user/*": "owner"
 }
