@@ -183,6 +183,7 @@ Storage.prototype.validateData = function (type, permission, data, table) {
 		}
 		
 		//determine the access of the field
+		if (!rule.access) { continue; }
 		var access = rule.access.w || rule.access;
 
 		//if the user permission does not have access,
@@ -194,6 +195,9 @@ Storage.prototype.validateData = function (type, permission, data, table) {
 		}
 	}
 
+	//for insertations, need to make sure
+	//required fields are defined, otherwise
+	//set to default value
 	if (type === "insert") {
 		for (var key in rules) {
 			//already been validated above
@@ -360,16 +364,21 @@ Storage.prototype.get = function (req, next) {
 */
 Storage.prototype.delete = function (req, next) {
 	var opts = parseRequest(req);
+	var permission = req.permission;
+	var where = {};
+
+	if (permission === "owner") {
+		where["_creator"] = req.session.user._id;
+	}
 
 	if (opts.parts >= 3) {
-		var query = {};
-		query[opts.field] = opts.value;
+		where[opts.field] = opts.value;
 
 		//dont create if it doesn't exist, apply to multiple
-		this.db.collection(opts.table).remove(query, OPTS, next);
+		this.db.collection(opts.table).remove(where, OPTS, next);
 	} else {
 		//truncate table
-		this.db.collection(opts.table).remove({}, OPTS, next);
+		this.db.collection(opts.table).remove(where, OPTS, next);
 	}
 };
 

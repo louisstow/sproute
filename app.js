@@ -179,7 +179,7 @@ App.prototype = {
 					}
 
 					if (flag) {
-						return res.json({error: "You do not have permission to visit this page"})
+						return res.json({error: "You do not have permission to complete this action."})
 					} else next();
 				});
 			}).call(this, method, route, user)
