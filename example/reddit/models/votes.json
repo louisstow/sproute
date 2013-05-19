@@ -1,0 +1,5 @@
+{
+	"link": "String",
+	"value": "Number",
+	"$unique": ["_creator", "link", "value"]
+}

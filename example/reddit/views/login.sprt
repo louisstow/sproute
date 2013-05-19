@@ -2,5 +2,6 @@
 <form action="/api/login?goto=/" method="post">
 Username: <input type="text" name="name" /><br />
 Password: <input type="password" name="pass" /><br />
+<input type="hidden" name="_csrf" value="{{session._csrf}}" />
 <button type="submit">Login</button>
 </form>
