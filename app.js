@@ -56,6 +56,10 @@ App.prototype = {
 
 	},
 
+	/**
+	* Configure the Express server from
+	* the config data.
+	*/
 	loadServer: function () {
 		var server = express();
 		var secret = this.config.secret || (this.config.secret = (Math.random() * 10000000 | 0).toString(16));
@@ -117,6 +121,12 @@ App.prototype = {
 		});
 	},
 
+	/**
+	* Load the permissions table and implement
+	* some server middleware to validate the
+	* permission before passing to the next
+	* route handler.
+	*/
 	loadPermissions: function () {
 		var permissionsPath = path.join(this.dir, "permissions.json");
 
@@ -142,19 +152,27 @@ App.prototype = {
 					console.log("PERMISSION", method, route, user);
 					var flag = false;
 
+					//save the required permission and pass it on
+					req.permission = user;
+
+					//stranger must NOT be logged in
 					if (user === "stranger") {
 						if (req.session && req.session.user) {
 							flag = true;
 						}
 					}
-					else if (user === "member") {
+					//member or owner must be logged in
+					//owner is handled further in the process
+					else if (user === "member" || user === "owner") {
 						if (!req.session.user) {
 							flag = true;
 						}
 					}
+					//no restriction
 					else if (user === "anyone") {
 						flag = false;
 					}
+					//custom roles
 					else {
 						var role = req.session.user && req.session.user.role || "stranger";
 						flag = !self.storage.inheritRole(role, user);
@@ -240,6 +258,26 @@ App.prototype = {
 		});
 	},
 
+	testRoute: function (method, url) {
+		var routes = this.server.routes[method];
+
+		for (var i = 0; i < routes.length; ++i) {
+			//see if this route matches
+			if (routes[i].regexp.test(url)) {
+				var permissionKey = method.toUpperCase() + " " + routes[i].path;
+				var userType = this.permissions[permissionKey];
+
+				//return the first matching type
+				if (userType) {
+					return userType
+				}
+			}
+		}
+
+		//default to anyone
+		return "anyone";
+	},
+
 	/**
 	* Setup hooks into the template parser to
 	* return data from the storage engine.
@@ -252,9 +290,12 @@ App.prototype = {
 				var expr = block.expr.split(" ");
 				var key = expr[2];
 				var url = expr[0];
-				console.log("hook get", expr, key, url)
+				
+				//see if this url has a permission associated
+				var permission = app.testRoute("get", url);
+
 				//request the data then continue parsing
-				app.storage.get({url: url}, function (err, data) {
+				app.storage.get({url: url, permission: permission}, function (err, data) {
 					console.log("get cmd", url, data, key)
 					this.data[key] = data;
 					next();
@@ -283,7 +324,8 @@ App.prototype = {
 	},
 
 	/**
-	* User the server 
+	* Setup the endpoints for the REST interface
+	* to the model.
 	*/
 	loadREST: function () {
 		this.server.get("/data/*", this.handleGET.bind(this));
@@ -295,7 +337,11 @@ App.prototype = {
 		this.server.post("/api/logout", this.logout.bind(this));
 	},
 
+	/**
+	* REST handlers
+	*/
 	handleGET: function (req, res) {
+		console.log("HERE?", req.permission)
 		this.storage.get(req, function (err, response) {
 			if (err) {
 				console.error("Error in storage method", req.url, "GET");
@@ -337,6 +383,9 @@ App.prototype = {
 		});
 	},
 
+	/**
+	* In-built user account functionality.
+	*/
 	getLogged: function (req, res) {
 		if (req.session && req.session.user) {
 			res.json(req.session.user); 
@@ -346,7 +395,10 @@ App.prototype = {
 	},
 
 	login: function (req, res) {
-		this.storage.get({url: "/data/users/name/" + req.body.name}, function (err, data) {
+		var url = "/data/users/name/" + req.body.name;
+		var permission = this.testRoute("get", url);
+
+		this.storage.get({url: url, permission: permission}, function (err, data) {
 			console.log("err", data);
 			if (err || !data.length) {
 				return res.json({error: "User not found"});

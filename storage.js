@@ -116,6 +116,11 @@ function parseRequest (req) {
 	}
 }
 
+/**
+* Determines if the first provided role inherits
+* the second role.
+* e.g. admin > member
+*/
 Storage.prototype.inheritRole = function (test, role) {
 	var roleIndex = this.structure.users.role.values.indexOf(role);
 	var testIndex = this.structure.users.role.values.indexOf(test);
@@ -128,7 +133,39 @@ Storage.prototype.inheritRole = function (test, role) {
 	return (testIndex <= roleIndex);
 }
 
-Storage.prototype.validateData = function (type, data, table) {
+/**
+* Creates an object of fields to exclude from
+* the selection.
+*/
+Storage.prototype.validateFields = function (permission, table) {
+	var rules = this.structure[table];
+	var omit = {};
+
+	for (var key in rules) {
+		var rule = rules[key];
+
+		//create the access r/w object
+		var access = typeof rule.access === "string" ? {
+			r: rule.access,
+			w: rule.access
+		} : rule.access;
+
+		//skip if not defined or anyone can view
+		if (!access || access.r === "anyone") { continue; }
+
+		if (!this.inheritRole(permission, access.r)) {
+			omit[key] = 0;
+		}
+	}
+
+	return omit;
+}
+
+/**
+* Validates an object for update or insertion
+* into a collection using the provided rules.
+*/
+Storage.prototype.validateData = function (type, permission, data, table) {
 	var rules = this.structure[table];
 	var errors = {};
 	var errorFlag = false;
@@ -136,27 +173,40 @@ Storage.prototype.validateData = function (type, data, table) {
 	//should not be multilevel object
 	//look for special data commands
 	for (var key in data) {
-		if (rules[key]) {
-			var error = validation.test(data[key], rules[key]);
-			if (error.length) {
-				errors[key] = error;
-				errorFlag = true;
-			}
+		var rule = rules[key];
+		if (!rule) continue;
+
+		var error = validation.test(data[key], rule);
+		if (error.length) {
+			errors[key] = error.join("\n");
+			errorFlag = true;
+		}
+		
+		//determine the access of the field
+		var access = rule.access.w || rule.access;
+
+		//if the user permission does not have access,
+		//delete the value or set to default
+		if (!this.inheritRole(permission, access)) {
+			delete data[key];
+
+			if ("default" in rule) { data[key] = rule["default"]; }
 		}
 	}
 
 	if (type === "insert") {
 		for (var key in rules) {
-			if (!data[key]) {
-				//required value so create error
-				if (rules[key].required) {
-					errors[key] = "Cannot find required field: " + key;
-					errorFlag = true;
-				}
-				//default value
-				else if ("default" in rules[key]) {
-					data[key] = rules[key]["default"];
-				}
+			//already been validated above
+			if (key in data) { continue; }
+
+			//required value so create error
+			if (rules[key].required) {
+				errors[key] = "Cannot find required field: " + key;
+				errorFlag = true;
+			}
+			//default value
+			else if ("default" in rules[key]) {
+				data[key] = rules[key]["default"];
 			}
 		}
 	}
@@ -171,6 +221,8 @@ Storage.prototype.validateData = function (type, data, table) {
 Storage.prototype.post = function (req, body, next) {
 	var opts = parseRequest(req);
 	var data = body;
+	var permission = req.permission;
+	var where = {};
 
 	if (!opts.cmd) {
 		//need to use $set for updating
@@ -185,11 +237,21 @@ Storage.prototype.post = function (req, body, next) {
 		}
 	}
 
-	if (opts.parts >= 3) {
-		var query = {};
-		query[opts.field] = opts.value;
+	//special permission
+	if (permission === "owner") {
+		where['_creator'] = req.session.user._id;
+	}
 
-		var errors = this.validateData("update", body, opts.table);
+	if (opts.parts >= 3) {
+		//add a constraint to the where clause
+		where[opts.field] = opts.value;
+
+		var errors = this.validateData(
+			"update", 
+			permission,
+			body, 
+			opts.table
+		);
 
 		//return an error if validation failed.
 		if (errors) {
@@ -207,13 +269,19 @@ Storage.prototype.post = function (req, body, next) {
 		var qOpts = { upsert: false, multi: true, w: OPTS.w };
 
 		//dont create if it doesn't exist, apply to multiple
-		this.db.collection(opts.table).update(query, data, qOpts, next);
+		this.db.collection(opts.table).update(where, data, qOpts, next);
 
-		this.db.collection(opts.table).update(query, {
+		this.db.collection(opts.table).update(where, {
 			"$set": metadata
 		}, function(){});
 	} else {
-		var errors = this.validateData("insert", data, opts.table);
+		//validate the data against the rules
+		var errors = this.validateData(
+			"insert", 
+			permission, 
+			data, 
+			opts.table
+		);
 
 		//return an error if validation failed.
 		if (errors) {
@@ -237,6 +305,15 @@ Storage.prototype.post = function (req, body, next) {
 Storage.prototype.get = function (req, next) {
 	var opts = parseRequest(req);
 	var queryOpts = {};
+	var permission = req.permission;
+	var where = {};
+
+	//match the owners at row level
+	if (permission === "owner") {
+		where['_creator'] = req.session.user._id;
+	}
+
+	var omit = this.validateFields(permission, opts.table) || {};
 
 	//parse limit options
 	if (opts.query.limit) {
@@ -253,10 +330,10 @@ Storage.prototype.get = function (req, next) {
 	}
 
 	if (opts.parts >= 3) {
-		var query = {};
-		query[opts.field] = opts.value;
+		//add the where constraint
+		where[opts.field] = opts.value;
 
-		this.db.collection(opts.table).find(query, queryOpts).toArray(function (err, arr) {
+		this.db.collection(opts.table).find(where, omit, queryOpts).toArray(function (err, arr) {
 			if (err) {
 				return next(err);
 			}
@@ -270,7 +347,7 @@ Storage.prototype.get = function (req, next) {
 	}
 	//1 part means list data 
 	else if (opts.parts === 1) {
-		this.db.collection(opts.table).find({}, queryOpts).toArray(next);
+		this.db.collection(opts.table).find(where, omit, queryOpts).toArray(next);
 	}
 	else {
 		next(null, {error: "Invalid request"});

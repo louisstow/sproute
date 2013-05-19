@@ -1,6 +1,9 @@
 {
 	"GET /submit": "member",
 	"POST /data/link": "member",
-	"POST /login": "stranger",
-	"GET /login": "stranger"
+	"POST /data/link/*": "owner",
+	"POST /api/login": "stranger",
+	"GET /login": "stranger",
+	"POST /register": "stranger",
+	"GET /register": "stranger"
 }
