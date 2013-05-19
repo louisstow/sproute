@@ -1,3 +1,9 @@
 {
-	"secret": "hello"
+	"secret": "hello",
+	"admin": {
+		"name": "louis",
+		"pass": "P4$$w0rd",
+		"email": "louisstow@gmail.com",
+		"role": "admin"
+	}
 }
