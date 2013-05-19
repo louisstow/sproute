@@ -71,6 +71,7 @@ App.prototype = {
 	    console.log(this.config.static, staticDir)
 	    server.use("/" + this.config.static, express.static(staticDir, { maxAge: 1 }));
 	    server.use(express.bodyParser());
+	    server.use(express.csrf());
 
 	    server.use(function (err, req, res, next) {
 	    	if (err) {
