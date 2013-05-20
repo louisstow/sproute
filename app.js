@@ -74,9 +74,10 @@ App.prototype = {
 	    server.use(express.bodyParser());
 	    server.use(express.csrf());
 
+	    var self = this;
 	    server.use(function (err, req, res, next) {
 	    	if (err) {
-	    		res.json(err);
+	    		self.errorHandler(req, res).call(self, err);
 	    	} else next();
 	    });
 
@@ -107,6 +108,10 @@ App.prototype = {
 	*/
 	loadModel: function () {
 		var modelPath = path.join(this.dir, this.config.models);
+		if (!fs.existsSync(modelPath)) {
+			return;
+		}
+
 		var files = fs.readdirSync(modelPath);
 		var structure = {};
 
@@ -213,6 +218,40 @@ App.prototype = {
 		}).cb(next);
 	},
 
+	renderView: function (view, data, req, res) {
+		//build the data to pass into template
+		_.extend(data, {
+			params: req.params, 
+			query: req.query,
+			session: req.session,
+			self: {
+				dir: path.join(this.dir, this.config.views),
+				url: req.url
+			}
+		});
+
+		var f = ff(this, function () {
+			//grab the template from the cache
+			if (this.config.cacheViews) {
+				f.pass(this._viewCache[view]);
+			} else {
+				this.loadView(view, f.slot());
+			}
+		}, function (template) {
+			//render and send it back to client
+			var g = new Greenhouse(this.hooks);
+			g.oncompiled = function (html) {
+				res.send(html);
+			};
+
+			g.onerror = function (error) {
+				res.json(error);
+			}
+
+			g.render(template, data);
+		});
+	},
+
 	/**
 	* Setup the routes from the controller. Handle
 	* the requests and start an instance of the greenhouse
@@ -225,38 +264,7 @@ App.prototype = {
 		var self = this;
 		this.server.get(route, function (req, res) {
 			console.log("GET", route, view, req.params, req.query);
-			var data = {};
-			//build the data to pass into template
-			_.extend(data, {
-				params: req.params, 
-				query: req.query,
-				session: req.session,
-				self: {
-					dir: path.join(self.dir, self.config.views),
-					url: req.url
-				}
-			});
-
-			var f = ff(self, function () {
-				//grab the template from the cache
-				if (this.config.cacheViews) {
-					f.pass(this._viewCache[view]);
-				} else {
-					this.loadView(view, f.slot());
-				}
-			}, function (template) {
-				//render and send it back to client
-				var g = new Greenhouse(this.hooks);
-				g.oncompiled = function (html) {
-					res.send(html);
-				};
-
-				g.onerror = function (error) {
-					res.json(error);
-				}
-
-				g.render(template, data);
-			});
+			self.renderView(view, {}, req, res);
 		});
 	},
 
@@ -445,9 +453,10 @@ App.prototype = {
 	* from the storage instance.
 	*/
 	response: function (req, res) {
+		var self = this;
 		return function (err, response) {
 			if (err) {
-				return this.errorHandler(req, res)(err);
+				return self.errorHandler(req, res).call(self, err);
 			}
 
 			if (req.query.goto) {
@@ -462,6 +471,7 @@ App.prototype = {
 	* Create an error handler function
 	*/
 	errorHandler: function (req, res) {
+		var self = this;
 		return function (err) {
 			//log to the server
 			console.error("-----------");
@@ -469,7 +479,11 @@ App.prototype = {
 			console.error(err);
 			console.error("-----------");
 
-			res.json(err)
+			if (self.config.errorView) {
+				self.renderView.call(self, self.config.errorView, {
+					error: err
+				}, req, res);
+			} else res.json(err)
 		}
 	}
 };
