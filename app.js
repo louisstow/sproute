@@ -249,6 +249,8 @@ App.prototype = {
 			}
 
 			g.render(template, data);
+		}).error(function () {
+			res.send(404);
 		});
 	},
 
