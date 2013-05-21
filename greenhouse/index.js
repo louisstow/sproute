@@ -170,6 +170,8 @@ Greenhouse.prototype.parseExpression = function (expr, func) {
     expr = expr && expr.replace(/:([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)/g, replacer);
     //bash syntax ${my.var.name}
     expr = expr && expr.replace(/\$\{([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)\}/g, replacer);
+
+    return expr;
 }
 
 /**
