@@ -160,11 +160,16 @@ function getLineFromIndex (template, index) {
 Greenhouse.prototype.parseExpression = function (expr, func) {
     var self = this;
 
-    return expr && expr.replace(/:([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)/g, function (a, name) {
+    function replacer (a, name) {
         var result = Greenhouse.extractDots(name, self.data);
         if (func) { result = func(result); }
         return result;
-    });
+    }
+
+    //colon syntax :my.var.name
+    expr = expr && expr.replace(/:([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)/g, replacer);
+    //bash syntax ${my.var.name}
+    expr = expr && expr.replace(/\$\{([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)\}/g, replacer);
 }
 
 /**
@@ -368,6 +373,7 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                 
                 //trying to include file outside of
                 //directory
+                block.path = this.parseExpression(block.path);
                 if (block.path.indexOf("..") !== -1) {
                     return next();
                 }
