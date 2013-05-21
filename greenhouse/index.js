@@ -68,7 +68,7 @@ function Greenhouse (hooks) {
     this.hooks = hooks || {};
 
     this.hooks.set = function (block, next) {
-        var expand = this.parseExpression(block.rawExpr, this.data)
+        var expand = this.parseExpression(block.rawExpr);
         var expr = expand.split(" ");
         var name = expr[0];
         var value = expr.slice(1).join(" ");
