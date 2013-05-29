@@ -47,7 +47,8 @@ App.prototype = {
 			"extension": "sprt",
 			"secret": randString(),
 			"static": "public",
-			"cacheViews": false
+			"cacheViews": false,
+			"port": 8000
 		};
 
 		try {
