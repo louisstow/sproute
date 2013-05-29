@@ -243,11 +243,14 @@ Greenhouse.prototype.tokenize = function (template) {
                 token.end = idx + 1;
             }
             //check includes
-            else if (expression.substr(0, 7).toLowerCase() === "include") {
+            else if (expression.substr(0, 7).toLowerCase() === "include" ||
+					 expression.substr(0, 8).toLowerCase() === "#include") {
+
                 token.type = types.INCLUDE;
-                token.path = expression.substr(8);
+                token.path = expression.split(" ").slice(1).join(" ");
                 token.start = openTag - 1;
                 token.end = idx + 1;
+				token.eval = expression[0] !== "#";
             }
             //a conditional statement
             else if (expression.substr(0, 2).toLowerCase() === "if") {
@@ -392,7 +395,7 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
 
                     fs.readFile(viewPath, f.slot());
                 }, function (contents) {
-                    if (contents === "") {
+                    if (contents === "" || !block.eval) {
                         return f.pass(contents);
                     }
 
