@@ -13,8 +13,7 @@ function randString () {
 	return Math.random().toString(36).substr(2);
 }
 
-function App (name, dir, server) {
-	this.name = name;
+function App (dir) {
 	this.dir = dir;
 	
 	this._viewCache = {};
