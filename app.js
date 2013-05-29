@@ -9,6 +9,10 @@ var pwd = require("pwd");
 var Storage = require("./storage");
 var Greenhouse = require("./greenhouse");
 
+function randString () {
+	return Math.random().toString(36).substr(2);
+}
+
 function App (name, dir, server) {
 	this.name = name;
 	this.dir = dir;
@@ -42,7 +46,7 @@ App.prototype = {
 			"views": "views",
 			"controller": "controller.json",
 			"extension": "sprt",
-			"secret": this.name.toUpperCase(),
+			"secret": randString(),
 			"static": "public",
 			"cacheViews": false
 		};
@@ -55,6 +59,12 @@ App.prototype = {
 			console.error(e, e.stack);
 		}
 
+		if (!this.config.name) {
+			console.error("You must include a `name` parameter in your config.json file");
+			process.exit(1);
+		}
+
+		this.name = this.config.name;
 	},
 
 	/**
