@@ -1,8 +1,0 @@
-{{include header.sprt}}
-
-<form action="/data/users?goto=/login" method="post">
-Username: <input type="text" name="name" /><br />
-Password: <input type="password" name="pass" /><br />
-<input type="hidden" name="_csrf" value="{{session._csrf}}" />
-<button type="submit">Register</button>
-</form>

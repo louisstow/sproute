@@ -1,3 +1,0 @@
-{
-	"role": {"values": ["admin", "moderator", "member"], "default": "member"}
-}

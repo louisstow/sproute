@@ -1,3 +1,5 @@
-# Sproute - The instant community site builder
+# Sproute - Build your wildest website in minutes
 
-Sproute will be a new way to instantly create a website driven by the community. No more learning languages, frameworks and databases, select a template or customise with CSS wizardry to create a completely custom solution.
+Sproute is a new web framework to quickly build dynamic websites.
+
+For more information, visit http://sproute.io
