@@ -3,7 +3,7 @@ var _ = require("underscore");
 exports.test = function (value, rule) {
 	var errors = [];
 
-	console.log(value, rule);
+	console.log("TESTING", value, rule);
 
 	//only validate the type
 	if (typeof rule === "string" || rule.type) {

@@ -102,6 +102,10 @@ Greenhouse.extractDots = function (line, data) {
     );
 };
 
+Greenhouse.prototype.extractDots = function (line) {
+    return Greenhouse.extractDots(line, this.data);
+}
+
 /**
 * Parse template char by char
 * look for {
@@ -160,16 +164,18 @@ function getLineFromIndex (template, index) {
 Greenhouse.prototype.parseExpression = function (expr, func) {
     var self = this;
 
+    console.log("PARSE THIS:", expr)
     function replacer (a, name) {
         var result = Greenhouse.extractDots(name, self.data);
+        console.log("REPLACER", result, name)
         if (func) { result = func(result); }
         return result;
     }
 
     //colon syntax :my.var.name
-    expr = expr && expr.replace(/:([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)/g, replacer);
-    //bash syntax ${my.var.name}
-    expr = expr && expr.replace(/\$\(([a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)\)/g, replacer);
+    expr = expr && expr.replace(/:([a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*)/g, replacer);
+    //bash syntax $(my.var.name)
+    expr = expr && expr.replace(/\$\(([a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*)\)/g, replacer);
 
     return expr;
 }
@@ -496,11 +502,19 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                     if (block.onTrue) {
                         this.start = block.startTrue;
                         this.process(template, block.onTrue, wrapNext);
+                    } else {
+                        //skip it entirely
+                        this.start = block.endTrue;
+                        next();
                     }
                 } else {
                     if (block.onFalse && block.else) {
                         this.start = block.startFalse
                         this.process(template, block.onFalse, wrapNext);
+                    } else {
+                        //skip it entirely, REFACTOR
+                        this.start = block.endTrue;
+                        next();
                     }
                 }
 

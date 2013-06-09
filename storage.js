@@ -22,10 +22,19 @@ var userStructure = {
 
 function Storage (opts) {
 	this.app = opts.name;
-	this.db = new mongo.Db(opts.name, new mongo.Server(HOST, PORT), OPTS);
+
+	var mongoOpts = opts.config.db || {};
+
+	//setup the mongo db object
+	this.db = new mongo.Db(
+		opts.name, 
+		new mongo.Server(mongoOpts.host || HOST, mongoOpts.port || PORT), 
+		OPTS
+	);
+
 	this.structure = opts.structure;
 	this.config = opts.config;
-
+	console.log("CREATE COLLECTION", opts.name)
 	//every app needs a users collection
 	console.log(this.structure.users)
 	if (!this.structure.users) {
@@ -56,21 +65,7 @@ function Storage (opts) {
 				db.createCollection(table, OPTS, function (err) {
 					console.log("Collection created", err, table);
 					if (!err && table === "users") {
-						//minimal admin user object
-						var admin = self.config.admin || {
-							name: "admin",
-							email: "admin@admin.com",
-							pass: "admin",
-							role: "admin"
-						};
-
-						//this should come from somewhere else
-						db.collection("users").insert({
-							name: admin.name,
-							email: admin.email,
-							pass: admin.pass,
-							role: admin.role
-						}, function () {});
+						self.onAdmin && self.onAdmin();
 					}
 				});
 			})(table)	
@@ -78,6 +73,7 @@ function Storage (opts) {
 	});
 
 	this.db.on("error", function () {
+		console.error("Error opening database", opts.name)
 		console.error(arguments)
 	});
 }
@@ -166,7 +162,7 @@ Storage.prototype.validateFields = function (permission, table) {
 * into a collection using the provided rules.
 */
 Storage.prototype.validateData = function (type, permission, data, table) {
-	var rules = this.structure[table];
+	var rules = this.structure[table] || {};
 	var errors = {};
 	var errorFlag = false;
 
@@ -202,6 +198,7 @@ Storage.prototype.validateData = function (type, permission, data, table) {
 		for (var key in rules) {
 			//already been validated above
 			if (key in data) { continue; }
+			if (typeof rules[key] !== "object") { continue; }
 
 			//required value so create error
 			if (rules[key].required) {

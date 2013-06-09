@@ -14,7 +14,7 @@ function randString () {
 }
 
 function App (dir) {
-	this.dir = dir;
+	this.dir = path.resolve(dir);
 	
 	this._viewCache = {};
 
@@ -48,7 +48,8 @@ App.prototype = {
 			"secret": randString(),
 			"static": "public",
 			"cacheViews": false,
-			"port": 8000
+			"port": 8000,
+			"csrf": false
 		};
 
 		try {
@@ -82,7 +83,11 @@ App.prototype = {
 	    console.log(this.config.static, staticDir)
 	    server.use("/" + this.config.static, express.static(staticDir, { maxAge: 1 }));
 	    server.use(express.bodyParser());
-	    server.use(express.csrf());
+	    
+	    //use the anti-CSRF middle-ware if enabled
+	    if (this.config.csrf) {
+	    	server.use(express.csrf());
+	    }
 
 	    var self = this;
 	    server.use(function (err, req, res, next) {
@@ -136,6 +141,31 @@ App.prototype = {
 			structure: structure,
 			config: this.config
 		});
+
+		//create the admin user account
+		this.storage.onAdmin = function () {
+
+			//minimal admin user object
+			var admin = this.config.admin || {
+				name: "admin",
+				email: "admin@admin.com",
+				pass: "admin"
+			};
+
+			admin.role = "admin";
+
+			console.log("No admin, create account:", admin)
+
+			//send a mock register request 
+			this.register({
+				session: {
+					user: {role: "admin"},
+				},
+				body: admin,
+				method: "POST",
+				query: {}
+			}, {json: function(){}});
+		}.bind(this);
 	},
 
 	/**
@@ -153,6 +183,7 @@ App.prototype = {
 			console.error("permissions at path: [" + permissionsPath + "] not found.");
 			console.error(e);
 			console.error(e.stack);
+			this.permissions = {};
 		}
 
 		for (var url in this.permissions) {
@@ -259,8 +290,10 @@ App.prototype = {
 			}
 
 			g.render(template, data);
-		}).error(function () {
-			res.send(404);
+		}).error(function (err) {
+			console.error(err)
+			console.error(err.stack)
+			res.send(500);
 		});
 	},
 
@@ -318,6 +351,7 @@ App.prototype = {
 
 				//request the data then continue parsing
 				app.storage.get({url: url, permission: permission}, function (err, data) {
+					console.log("GET", url, data);
 					this.data[key] = data;
 					next();
 				}.bind(this));
@@ -336,6 +370,14 @@ App.prototype = {
 				}
 
 				this.pieces.push(result);
+				this.start = block.end + 1;
+				next();
+			},
+
+			debug: function (block, next) {
+				var value = this.extractDots(block.rawExpr);
+				console.log("DEBUG", value, this.data);
+				this.pieces.push(JSON.stringify(value));
 				this.start = block.end + 1;
 				next();
 			}
@@ -452,11 +494,22 @@ App.prototype = {
 		//for some reason FF doesnt work with pwd...
 		var self = this;
 		pwd.hash(req.body.pass.toString(), function (err, salt, hash) {
-			req.body._salt = salt;
-			req.body.pass = hash;
+			req.body._salt = salt.toString();
+			req.body.pass = hash.toString("base64");
 			console.log("PASS", req.body.pass)
 
-			self.storage.post({url: url}, req.body, self.response(req, res));
+			var cb = self.response(req, res);
+			self.storage.post({url: url}, req.body, function (err, resp) {
+				resp = resp[0];
+
+				if (resp) {	
+					delete resp.pass;
+					delete resp._salt;
+					console.log("RESP", resp)
+				}
+
+				cb.call(self, err, resp);
+			});
 		});
 	},
 
@@ -489,6 +542,7 @@ App.prototype = {
 			console.error("-----------");
 			console.error("Error occured during %s %s", req.method.toUpperCase(), req.url)
 			console.error(err);
+			console.error(err.stack);
 			console.error("-----------");
 
 			if (self.config.errorView) {
