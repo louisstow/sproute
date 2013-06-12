@@ -436,23 +436,29 @@ App.prototype = {
 		var permission = this.testRoute("get", url);
 
 		var f = ff(this, function () {
-			this.storage.get({url: url, permission: permission}, f.slot());
+			this.storage.db.find({name: req.body.name}, f.slot());
 		}, function (data) {
+			console.log("LOGIN", data, req.body.name)
 			//no user found, throw error
-			if (!data.length) { f.fail({error: "No username found."}); }
+			if (!data.length) { 
+				return f.fail("No username "+req.body.name+" found."); 
+			}
+
+			if (!req.body.pass) {
+				return f.fail("No password specified."); 
+			}
 
 			var user = data[0];
 			f.pass(user);
-			pwd.hash(req.body.pass, user._salt, f.slot());
+			pwd.hash(req.body.pass || "", user._salt, f.slot());
 		}, function (user, pass) {
-			console.log("WTF", user, pass)
 			if (user.pass === pass.toString("base64")) {
 				req.session.user = _.extend({}, user);
 				delete req.session.user.pass;
 				delete req.session.user._salt;
 				res.json(req.session.user);
 			} else {
-				res.json({error: "Username and password mismatch"})
+				return f.fail("Username and password mismatch."); 
 			}
 
 			if (req.query.goto) {
@@ -498,13 +504,14 @@ App.prototype = {
 			console.log("PASS", req.body.pass)
 
 			var cb = self.response(req, res);
-			self.storage.post({url: url}, req.body, function (err, resp) {
+			self.storage.db.insert(req.body, function (err, resp) {
+				if (err) { return cb.call(self, err); }
+
 				resp = resp[0];
 
 				if (resp) {	
 					delete resp.pass;
 					delete resp._salt;
-					console.log("RESP", resp)
 				}
 
 				cb.call(self, err, resp);
@@ -546,7 +553,7 @@ App.prototype = {
 
 			if (self.config.errorView) {
 				self.renderView.call(self, self.config.errorView, {
-					error: err
+					error: JSON.stringify(err)
 				}, req, res);
 			} else res.json(err)
 		}

@@ -15,7 +15,7 @@ function Backend(opts) {
 };
 
 //save mongo options
-var opts = {
+var OPTS = {
 	open: { w: 1, strict: true, safe: true },
 	collection: { strict: true },
 	insert: { w: 1, strict: true },
@@ -37,9 +37,10 @@ Backend.prototype = {
 		this.db = new mongo.Db(
 			opts.name, 
 			new mongo.Server(dbOpts.host || HOST, dbOpts.port || PORT), 
-			opts.open
+			OPTS.open
 		);
 		
+		var self = this;
 		var f = ff(this, function () {
 			this.db.open(f.slot());
 			this.db.on("error", this.error);
@@ -47,11 +48,21 @@ Backend.prototype = {
 			//loop over structure and create
 			//a collection
 			Object.keys(opts.structure).forEach(function (table) {
-				db.createCollection(table, opts.open, function (err) {
+				var fields = opts.structure[table];
+
+				//create the collection
+				db.createCollection(table, OPTS.open, function (err, collection) {
 					console.log("Collection created", err, table);
-					if (!err && table === "users") {
-						//TODO: alert App.js
-						opts.createAdmin();
+					//create the admin account
+					if (!err && table === "users") { opts.createAdmin(); }
+
+					for (var field in fields) {
+						//ensure unique index
+						if (fields[field].unique) {
+							var obj = {};
+							obj[field] = 1;
+							self.collection(table).ensureUnique(obj);
+						}
 					}
 				});
 			});
@@ -67,9 +78,9 @@ Backend.prototype = {
 		next = next || function () {};
 
 		var f = ff(this, function () {
-			this.db.collection(this.currentTable, opts.collection, f.slot());	
+			this.db.collection(this.currentTable, OPTS.collection, f.slot());	
 		}, function (collection) {
-			collection.insert(data, opts.insert, f.slot());
+			collection.insert(data, OPTS.insert, f.slot());
 		}).cb(next);
 	},
 
@@ -77,9 +88,9 @@ Backend.prototype = {
 		next = next || function () {};
 
 		var f = ff(this, function () {
-			this.db.collection(this.currentTable, opts.collection, f.slot());	
+			this.db.collection(this.currentTable, OPTS.collection, f.slot());	
 		}, function (collection) {
-			collection.update(where, data, opts.update, f.slot());
+			collection.update(where, data, OPTS.update, f.slot());
 		}).cb(next);
 	},
 
@@ -87,18 +98,38 @@ Backend.prototype = {
 		next = next || function () {};
 
 		var f = ff(this, function () {
-			this.db.collection(this.currentTable, opts.collection, f.slot());	
+			this.db.collection(this.currentTable, OPTS.collection, f.slot());	
 		}, function (collection) {
-			collection.remove(data, opts.remove, f.slot());
+			collection.remove(data, OPTS.remove, f.slot());
 		}).cb(next);
 	},
 
 	find: function (where, omit, opts, next) {
+		if (arguments.length === 2) {
+			next = omit;
+			omit = {};
+			opts = {};
+		}
+
 		var f = ff(this, function () {
-			this.db.collection(this.currentTable, opts.collection, f.slot());	
+			this.db.collection(this.currentTable, OPTS.collection, f.slot());	
 		}, function (collection) {
 			collection.find(where, omit, opts).toArray(next)
 		}).error(next);
+	},
+
+	ensureIndex: function (fields, opts, next) {
+		next = next || function () {};
+
+		var f = ff(this, function () {
+			this.db.collection(this.currentTable, OPTS.collection, f.slot());	
+		}, function (collection) {
+			collection.ensureIndex(fields, opts, f.slot());
+		}).cb(next);
+	},
+
+	ensureUnique: function (fields, next) {
+		return this.ensureIndex(fields, {unique: true}, next);
 	}
 };
 

@@ -8,9 +8,9 @@ var validation = require("./validation");
 
 //default user structure
 var userStructure = {
-	name: {type: "String", minlen: 3},
+	name: {type: "String", minlen: 3, unique: true},
 	email: {type: "String", minlen: 3},
-	pass: {type: "String", minlen: 3},
+	pass: {type: "String", minlen: 3, access: "admin"},
 	role: {type: "String", values: ["admin", "member"], default: "member"}
 };
 
