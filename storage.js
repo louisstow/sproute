@@ -2,17 +2,11 @@ var mongo = require("mongodb");
 var ff = require("ff");
 var url = require("url");
 var _ = require("underscore");
+var Backend = require("./mongo");
 
 var validation = require("./validation");
 
-var HOST = "localhost";
-var PORT = 27017;
-var OPTS = {
-	w: 1,
-	size: 5000000, //5,000,000 byes = 5MB
-	strict: true
-};
-
+//default user structure
 var userStructure = {
 	name: {type: "String", minlen: 3},
 	email: {type: "String", minlen: 3},
@@ -23,64 +17,26 @@ var userStructure = {
 function Storage (opts) {
 	this.app = opts.name;
 
-	var mongoOpts = opts.config.db || {};
-
-	//setup the mongo db object
-	this.db = new mongo.Db(
-		opts.name, 
-		new mongo.Server(mongoOpts.host || HOST, mongoOpts.port || PORT), 
-		OPTS
-	);
-
 	this.structure = opts.structure;
 	this.config = opts.config;
-	console.log("CREATE COLLECTION", opts.name)
+	
 	//every app needs a users collection
-	console.log(this.structure.users)
 	if (!this.structure.users) {
 		this.structure.users = userStructure;
 	} else {
 		//allow customization of the structure
 		_.defaults(this.structure.users, userStructure);
 	}
-	console.log(this.structure.users)
 
-	var self = this;
-	this.db.open(function (err, db) {
-		//log the result
-		console.log(
-			err ? "Error connecting to" : "Connected to", 
-			opts.name, "on", HOST + ":" + PORT
-		);
-
-		if (err) {
-			return console.error(err);
-		}
-
-		self.onready && self.onready.call(self);
-
-		for (var table in opts.structure) {
-			//horray, a fucking closure
-			(function (table) {
-				db.createCollection(table, OPTS, function (err) {
-					console.log("Collection created", err, table);
-					if (!err && table === "users") {
-						self.onAdmin && self.onAdmin();
-					}
-				});
-			})(table)	
-		}
-	});
-
-	this.db.on("error", function () {
-		console.error("Error opening database", opts.name)
-		console.error(arguments)
-	});
+	//connect to the database backend
+	this.db = new Backend(opts);
 }
 
 function parseRequest (req) {
 	var query = url.parse(req.url, true);
 	var parts = query.pathname.split("/");
+	var method = req.method && req.method.toUpperCase();
+	var error = null;
 
 	//trim uneeded parts of the request
 	if (parts[0] == '') { parts.splice(0, 1); }
@@ -102,13 +58,32 @@ function parseRequest (req) {
 		}
 	}
 
+	//set some default permissions if not defined
+	//and came from a user request
+	if (method) {
+		if (!req.permission) {
+			if (method === "DELETE") { req.permission = "owner"; }
+			if (method === "POST") {
+				if (parts.length >= 3) { req.permission = "owner"; }
+				else { req.permission = "member"; }
+			}
+			if (method === "GET") { req.permission = "anyone"; }
+		}
+
+		//ensure logged in if permission is not stranger/anyone
+		if (req.permission !== "stranger" && req.permission !== "anyone") {
+			if (!req.session.user) { error = "You do not have permission"; }
+		}
+	}
+
 	return {
 		table: table,
 		field: field,
 		value: value,
 		cmd: cmd,
 		query: query.query, //query params
-		parts: parts.length
+		parts: parts.length,
+		error: error
 	}
 }
 
@@ -120,7 +95,6 @@ function parseRequest (req) {
 Storage.prototype.inheritRole = function (test, role) {
 	var roleIndex = this.structure.users.role.values.indexOf(role);
 	var testIndex = this.structure.users.role.values.indexOf(test);
-	console.log("TEST ROLE", roleIndex, testIndex, test, role)
 
 	if (roleIndex === -1 || testIndex === -1) {
 		return false;
@@ -149,6 +123,7 @@ Storage.prototype.validateFields = function (permission, table) {
 		//skip if not defined or anyone can view
 		if (!access || access.r === "anyone") { continue; }
 
+		//leave out certain fields that the viewer can't access
 		if (!this.inheritRole(permission, access.r)) {
 			omit[key] = 0;
 		}
@@ -170,7 +145,14 @@ Storage.prototype.validateData = function (type, permission, data, table) {
 	//look for special data commands
 	for (var key in data) {
 		var rule = rules[key];
-		if (!rule) continue;
+		if (!rule) {
+			//in strict mode, don't allow unknown fields
+			if (this.config.strict) {
+				delete data[key];
+			}
+
+			continue;
+		}
 
 		var error = validation.test(data[key], rule);
 		if (error.length) {
@@ -225,6 +207,8 @@ Storage.prototype.post = function (req, body, next) {
 	var permission = req.permission;
 	var where = {};
 
+	if (opts.error) { return next(opts.error); }
+
 	if (!opts.cmd) {
 		//need to use $set for updating
 		//update when there are 3 url parts
@@ -267,16 +251,13 @@ Storage.prototype.post = function (req, body, next) {
 			metadata['_lastUpdatorName'] = req.session.user.name;
 		}
 
-		var qOpts = { upsert: false, multi: true, w: OPTS.w };
-
 		//dont create if it doesn't exist, apply to multiple
-		this.db.collection(opts.table).update(where, data, qOpts, next);
+		this.db.collection(opts.table).update(where, data, next);
 
 		this.db.collection(opts.table).update(where, {
 			"$set": metadata
 		}, function(){});
 	} else {
-		console.log("WHAT IS DATA?", data)
 		//validate the data against the rules
 		var errors = this.validateData(
 			"insert", 
@@ -296,7 +277,7 @@ Storage.prototype.post = function (req, body, next) {
 		}
 
 		data['_created'] = Date.now();
-		this.db.collection(opts.table).insert(data, OPTS, next);
+		this.db.collection(opts.table).insert(data, next);
 	}
 };
 
@@ -305,13 +286,16 @@ Storage.prototype.post = function (req, body, next) {
 * through a REST api
 */
 Storage.prototype.get = function (req, next) {
+	req.method = "get";
 	var opts = parseRequest(req);
 	var queryOpts = {};
 	var permission = req.permission;
 	var where = {};
 
+	if (opts.error) { return next(opts.error); }
+
 	//match the owners at row level
-	if (permission === "owner") {
+	if (permission === "owner" && req.session.user.role !== "admin") {
 		where['_creator'] = req.session.user._id;
 	}
 
@@ -335,7 +319,7 @@ Storage.prototype.get = function (req, next) {
 		//add the where constraint
 		where[opts.field] = opts.value;
 
-		this.db.collection(opts.table).find(where, omit, queryOpts).toArray(function (err, arr) {
+		this.db.collection(opts.table).find(where, omit, queryOpts, function (err, arr) {
 			if (err) {
 				return next(err);
 			}
@@ -349,7 +333,7 @@ Storage.prototype.get = function (req, next) {
 	}
 	//1 part means list data 
 	else if (opts.parts === 1) {
-		this.db.collection(opts.table).find(where, omit, queryOpts).toArray(next);
+		this.db.collection(opts.table).find(where, omit, queryOpts, next);
 	}
 	else {
 		next(null, {error: "Invalid request"});
@@ -365,19 +349,19 @@ Storage.prototype.delete = function (req, next) {
 	var permission = req.permission;
 	var where = {};
 
-	if (permission === "owner") {
+	if (opts.error) { return next(opts.error); }
+	
+	//if not the admin, default to owner
+	if (permission === "owner" && req.session.user.role !== "admin") {
 		where["_creator"] = req.session.user._id;
 	}
 
 	if (opts.parts >= 3) {
 		where[opts.field] = opts.value;
-
-		//dont create if it doesn't exist, apply to multiple
-		this.db.collection(opts.table).remove(where, OPTS, next);
-	} else {
-		//truncate table
-		this.db.collection(opts.table).remove(where, OPTS, next);
 	}
+
+	//truncate table
+	this.db.collection(opts.table).remove(where, next);
 };
 
 Storage.init = function (app) {

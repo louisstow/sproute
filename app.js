@@ -80,7 +80,6 @@ App.prototype = {
 	    server.use(express.session({secret: secret, cookie: {maxAge: null}}));
 
 	    var staticDir = path.join(this.dir, this.config.static);
-	    console.log(this.config.static, staticDir)
 	    server.use("/" + this.config.static, express.static(staticDir, { maxAge: 1 }));
 	    server.use(express.bodyParser());
 	    
@@ -139,33 +138,31 @@ App.prototype = {
 		this.storage = new Storage({
 			name: this.name, 
 			structure: structure,
-			config: this.config
+			config: this.config,
+
+			//callback when admin needs to be created
+			createAdmin: function () {
+
+				//minimal admin user object
+				var admin = this.config.admin || {
+					name: "admin",
+					email: "admin@admin.com",
+					pass: "admin"
+				};
+
+				admin.role = "admin";
+
+				//send a mock register request 
+				this.register({
+					session: {
+						user: {role: "admin"},
+					},
+					body: admin,
+					method: "POST",
+					query: {}
+				}, {json: function(){}});
+			}.bind(this)
 		});
-
-		//create the admin user account
-		this.storage.onAdmin = function () {
-
-			//minimal admin user object
-			var admin = this.config.admin || {
-				name: "admin",
-				email: "admin@admin.com",
-				pass: "admin"
-			};
-
-			admin.role = "admin";
-
-			console.log("No admin, create account:", admin)
-
-			//send a mock register request 
-			this.register({
-				session: {
-					user: {role: "admin"},
-				},
-				body: admin,
-				method: "POST",
-				query: {}
-			}, {json: function(){}});
-		}.bind(this);
 	},
 
 	/**
@@ -183,56 +180,58 @@ App.prototype = {
 			console.error("permissions at path: [" + permissionsPath + "] not found.");
 			console.error(e);
 			console.error(e.stack);
-			this.permissions = {};
+			this.permissions = {
+				"DELETE /data/:name": "owner",
+				"POST /data/:collection/:field/:name": "owner",
+				"POST /data/:collection": "member",
+			};
 		}
 
-		for (var url in this.permissions) {
+		//loop over the urls in permissions
+		Object.keys(this.permissions).forEach(function (url) {
 			var parts = url.split(" ");
 			var method = parts[0].toLowerCase();
 			var route = parts[1];
 			var user = this.permissions[url];
 
-			//more closures
-			(function (method, route, user) {
-				var self = this;
+			var self = this;
 
-				this.server[method](route, function (req, res, next) {
-					console.log("PERMISSION", method, route, user);
-					var flag = false;
+			this.server[method](route, function (req, res, next) {
+				console.log("PERMISSION", method, route, user);
+				var flag = false;
 
-					//save the required permission and pass it on
-					req.permission = user;
+				//save the required permission and pass it on
+				req.permission = user;
 
-					//stranger must NOT be logged in
-					if (user === "stranger") {
-						if (req.session && req.session.user) {
-							flag = true;
-						}
+				//stranger must NOT be logged in
+				if (user === "stranger") {
+					if (req.session && req.session.user) {
+						flag = true;
 					}
-					//member or owner must be logged in
-					//owner is handled further in the process
-					else if (user === "member" || user === "owner") {
-						if (!req.session.user) {
-							flag = true;
-						}
+				}
+				//member or owner must be logged in
+				//owner is handled further in the process
+				else if (user === "member" || user === "owner") {
+					if (!req.session.user) {
+						flag = true;
 					}
-					//no restriction
-					else if (user === "anyone") {
-						flag = false;
-					}
-					//custom roles
-					else {
-						var role = req.session.user && req.session.user.role || "stranger";
-						flag = !self.storage.inheritRole(role, user);
-					}
+				}
+				//no restriction
+				else if (user === "anyone") {
+					flag = false;
+				}
+				//custom roles
+				else {
+					var role = req.session.user && req.session.user.role || "stranger";
+					flag = !self.storage.inheritRole(role, user);
+				}
 
-					if (flag) {
-						return res.json({error: "You do not have permission to complete this action."})
-					} else next();
-				});
-			}).call(this, method, route, user)
+				if (flag) {
+					return res.json({error: "You do not have permission to complete this action."})
+				} else next();
+			});
 			
-		}
+		}.bind(this));
 	},
 
 	loadView: function (view, next) {
@@ -400,7 +399,7 @@ App.prototype = {
 		//api endpoints
 		this.server.get("/api/logged", this.getLogged.bind(this));
 		this.server.post("/api/login", this.login.bind(this));
-		this.server.post("/api/logout", this.logout.bind(this));
+		this.server.get("/api/logout", this.logout.bind(this));
 		this.server.post("/api/register", this.register.bind(this));
 	},
 

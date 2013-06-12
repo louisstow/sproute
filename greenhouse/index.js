@@ -164,10 +164,8 @@ function getLineFromIndex (template, index) {
 Greenhouse.prototype.parseExpression = function (expr, func) {
     var self = this;
 
-    console.log("PARSE THIS:", expr)
     function replacer (a, name) {
         var result = Greenhouse.extractDots(name, self.data);
-        console.log("REPLACER", result, name)
         if (func) { result = func(result); }
         return result;
     }
