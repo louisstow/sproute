@@ -14,6 +14,8 @@ var userStructure = {
 	role: {type: "String", values: ["admin", "member"], default: "member"}
 };
 
+var WRITE_METHODS = ["POST", "DELETE"];
+
 function Storage (opts) {
 	this.app = opts.name;
 
@@ -60,19 +62,9 @@ function parseRequest (req) {
 
 	//set some default permissions if not defined
 	//and came from a user request
-	if (method) {
+	if (WRITE_METHODS.indexOf(method) >= 0) {
 		if (!req.permission) {
-			if (method === "DELETE") { req.permission = "owner"; }
-			if (method === "POST") {
-				if (parts.length >= 3) { req.permission = "owner"; }
-				else { req.permission = "member"; }
-			}
-			if (method === "GET") { req.permission = "anyone"; }
-		}
-
-		//ensure logged in if permission is not stranger/anyone
-		if (req.permission !== "stranger" && req.permission !== "anyone") {
-			if (!req.session.user) { error = "You do not have permission"; }
+			console.log("Warning!: You should add a permission for this route.")
 		}
 	}
 

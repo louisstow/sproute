@@ -436,7 +436,7 @@ App.prototype = {
 		var permission = this.testRoute("get", url);
 
 		var f = ff(this, function () {
-			this.storage.db.find({name: req.body.name}, f.slot());
+			this.storage.db.collection("users").find({name: req.body.name}, f.slot());
 		}, function (data) {
 			console.log("LOGIN", data, req.body.name)
 			//no user found, throw error
