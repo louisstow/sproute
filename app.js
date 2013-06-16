@@ -499,11 +499,16 @@ App.prototype = {
 		//for some reason FF doesnt work with pwd...
 		var self = this;
 		pwd.hash(req.body.pass.toString(), function (err, salt, hash) {
+			var err = self.storage.validateData("insert", req.permission, req.body, "users");
+			var cb = self.response(req, res);
+			if (err) {
+				return cb.call(self, err);
+			}
+			
+			//add these fields after validation
 			req.body._salt = salt.toString();
 			req.body.pass = hash.toString("base64");
-			console.log("PASS", req.body.pass)
 
-			var cb = self.response(req, res);
 			self.storage.db.collection("users").insert(req.body, function (err, resp) {
 				if (err) { return cb.call(self, err); }
 

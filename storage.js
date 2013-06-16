@@ -10,9 +10,9 @@ var validation = require("./validation");
 var userStructure = {
 	name: {type: "String", minlen: 3, unique: true, required: true},
 	email: {type: "String", minlen: 3},
-	pass: {type: "String", minlen: 3, access: "admin", required: true},
+	pass: {type: "String", minlen: 3, access: "admin"},
 	_salt: {type: "String", access: "admin"},
-	role: {type: "String", values: ["admin", "member"], default: "member", required: true}
+	role: {type: "String", values: ["admin", "member"], default: "member"}
 };
 
 var WRITE_METHODS = ["POST", "DELETE"];
