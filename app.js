@@ -504,7 +504,7 @@ App.prototype = {
 			console.log("PASS", req.body.pass)
 
 			var cb = self.response(req, res);
-			self.storage.db.insert(req.body, function (err, resp) {
+			self.storage.db.collection("users").insert(req.body, function (err, resp) {
 				if (err) { return cb.call(self, err); }
 
 				resp = resp[0];
