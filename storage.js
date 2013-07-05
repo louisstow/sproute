@@ -80,6 +80,17 @@ function parseRequest (req) {
 	}
 }
 
+function realValue (x) {
+	var y = parseInt(x, 10);
+	if (!isNaN(y)) return y;
+	y = x.toLowerCase();
+	if (y === "true") return true;
+	if (y === "false") return false;
+	if (y === "null") return null;
+	
+	return x;
+}
+
 /**
 * Determines if the first provided role inherits
 * the second role.
@@ -147,6 +158,7 @@ Storage.prototype.validateData = function (type, permission, data, table) {
 			continue;
 		}
 
+		data[key] = realValue(data[key]);
 		var error = validation.test(data[key], rule);
 		if (error.length) {
 			errors[key] = error.join("\n");
