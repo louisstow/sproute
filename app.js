@@ -382,6 +382,24 @@ App.prototype = {
 				next();
 			}
 		};
+
+		//scan plugins directory
+		var pluginPath = path.join(__dirname, "plugins");
+		if (!fs.existsSync(pluginPath)) {
+			return;
+		}
+
+		var files = fs.readdirSync(pluginPath);
+		for (var i = 0; i < files.length; ++i) {
+			var file = files[i];
+			var table = file.split(".")[0];
+
+			//require the JS file
+			var hooks = require(path.join(pluginPath, file));
+			console.log("LOAD HOOK", path.join(pluginPath, file), Object.keys(hooks))
+			//extend the main hook object
+			_.extend(this.hooks, hooks);
+		}
 	},
 
 	/**
