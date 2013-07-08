@@ -151,6 +151,7 @@ App.prototype = {
 				};
 
 				admin.role = "admin";
+				admin._created = Date.now();
 
 				//send a mock register request 
 				this.register({
