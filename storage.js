@@ -1,6 +1,9 @@
 var mongo = require("mongodb");
 var ff = require("ff");
+var fs = require("fs");
+var path = require("path");
 var url = require("url");
+var wrench = require("wrench");
 var _ = require("underscore");
 var Backend = require("./mongo");
 
@@ -17,11 +20,16 @@ var userStructure = {
 
 var WRITE_METHODS = ["POST", "DELETE"];
 
+function randString () {
+	return Math.random().toString(36).substr(2);
+}
+
 function Storage (opts) {
 	this.app = opts.name;
 
 	this.structure = opts.structure;
 	this.config = opts.config;
+	this.dir = opts.dir;
 	
 	//every app needs a users collection
 	if (!this.structure.users) {
@@ -272,6 +280,26 @@ Storage.prototype.post = function (req, body, next) {
 		if (req.session && req.session.user) {
 			data['_creator'] = req.session.user._id;
 			data['_creatorName'] = req.session.user.name;
+		}
+
+		//turn any files into an object
+		if (req.files) {
+			for (var name in req.files) {
+				var file = req.files[name];
+				var ext = file.name.substr(file.name.lastIndexOf("."));
+				var randName = randString() + ext;
+				var destPath = path.join(this.config.static, "upload", name, randName);
+				
+				wrench.mkdirSyncRecursive(path.join(this.dir, this.config.static, "upload", name));
+				fs.rename(file.path, path.join(this.dir, destPath));
+
+				data[name] = {
+					name: file.name,
+					size: file.size,
+					type: file.type,
+					url: destPath
+				};
+			}
 		}
 
 		data['_created'] = Date.now();

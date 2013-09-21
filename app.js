@@ -139,6 +139,7 @@ App.prototype = {
 			name: this.name, 
 			structure: structure,
 			config: this.config,
+			dir: this.dir,
 
 			//callback when admin needs to be created
 			createAdmin: function () {
@@ -503,7 +504,7 @@ App.prototype = {
 	* If not, cannot specify role
 	*/
 	register: function (req, res) {
-		var url = "/data/users/";
+		req.url = "/data/users/";
 
 		if (req.session.user) {
 			if (req.body.role && !this.storage.inheritRole(req.session.user.role, req.body.role)) {
@@ -516,31 +517,17 @@ App.prototype = {
 		}
 
 		//for some reason FF doesnt work with pwd...
-		var self = this;
 		pwd.hash(req.body.pass.toString(), function (err, salt, hash) {
-			var err = self.storage.validateData("insert", req.permission, req.body, "users");
-			var cb = self.response(req, res);
-			if (err) {
-				return cb.call(self, err);
-			}
-			
 			//add these fields after validation
 			req.body._salt = salt.toString();
 			req.body.pass = hash.toString("base64");
 
-			self.storage.db.collection("users").insert(req.body, function (err, resp) {
-				if (err) { return cb.call(self, err); }
-
-				resp = resp[0];
-
-				if (resp) {	
-					delete resp.pass;
-					delete resp._salt;
-				}
-
-				cb.call(self, err, resp);
+			var cb = this.response(req, res);
+			this.storage.post(req, req.body, function (err, data) {
+				if (data) { data = data[0]; }
+				cb(err, data);
 			});
-		});
+		}.bind(this));
 	},
 
 	/**
@@ -577,7 +564,11 @@ App.prototype = {
 
 			if (self.config.errorView) {
 				self.renderView.call(self, self.config.errorView, {
-					error: JSON.stringify(err)
+					error: {
+						message: err.message || err,
+						stack: err.stack,
+						code: err.code
+					}
 				}, req, res);
 			} else res.json(err)
 		}
