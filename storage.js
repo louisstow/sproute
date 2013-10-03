@@ -157,7 +157,7 @@ Storage.prototype.validateData = function (type, permission, data, table) {
 
 		var dataType = (rule.type || rule).toLowerCase();
 		if (dataType === "number") {
-			data[key] = parseInt(data[key], 10);
+			data[key] = parseFloat(data[key], 10);
 		}
 
 		var error = validation.test(data[key], rule);
