@@ -5,51 +5,29 @@ var path = require("path");
 var url = require("url");
 var wrench = require("wrench");
 var _ = require("underscore");
-var Backend = require("./mongo");
+var Class = require("./lib/Class");
 
-var validation = require("./validation");
+var Validation = require("./lib/Validation");
 
 //default user structure
-var userStructure = {
+var user_structure = {
 	name: {type: "String", minlen: 3, unique: true, required: true},
 	email: {type: "String", minlen: 3},
-	pass: {type: "String", minlen: 3, access: "admin"},
-	_salt: {type: "String", access: "admin"},
+	pass: {type: "String", minlen: 3, required: true},
+	_salt: {type: "String"},
 	role: {type: "String", values: ["admin", "member"], default: "member"}
 };
 
-var WRITE_METHODS = ["POST", "DELETE"];
-
 function randString () {
 	return Math.random().toString(36).substr(2);
-}
-
-function Storage (opts) {
-	this.app = opts.name;
-
-	this.structure = opts.structure;
-	this.config = opts.config;
-	this.dir = opts.dir;
-	
-	//every app needs a users collection
-	if (!this.structure.users) {
-		this.structure.users = userStructure;
-	} else {
-		//allow customization of the structure
-		_.defaults(this.structure.users, userStructure);
-	}
-
-	//connect to the database backend
-	this.db = new Backend(opts);
 }
 
 function parseRequest (req) {
 	var query = url.parse(req.url, true);
 	var parts = query.pathname.split("/");
 	var method = req.method && req.method.toUpperCase();
-	var error = null;
 
-	//trim uneeded parts of the request
+	// trim uneeded parts of the request
 	if (parts[0] == '') { parts.splice(0, 1); }
 	if (parts[parts.length - 1] == '') { parts.splice(parts.length - 1, 1); }
 	if (parts[0] == 'data') { parts.splice(0, 1); }
@@ -59,339 +37,292 @@ function parseRequest (req) {
 	var value = parts[2];
 	var cmd   = parts[3];
 
-	if (field == "_id") {
-		//if this value is incorrect, dont crash
-		//the darn server
-		try {
-			value = mongo.ObjectID(value);
-		} catch (e) {
-			value = "";
-		}
+	// leave a warning if no permission on a writable request
+	if ((method == "POST" || method == "DELETE") && !req.permission) {
+		console.warn("You should add a permission for `"+req.url+"`.")
 	}
 
-	//set some default permissions if not defined
-	//and came from a user request
-	if (WRITE_METHODS.indexOf(method) >= 0) {
-		if (!req.permission) {
-			console.log("Warning!: You should add a permission for this route.")
-		}
-	}
-
-	return {
+	// modify the req object
+	_.extend(req, {
 		table: table,
 		field: field,
 		value: value,
 		cmd: cmd,
 		query: query.query, //query params
-		parts: parts.length,
-		error: error
-	}
+		type: parts.length >= 3 ? "filter" : "all"
+	});
 }
 
-/**
-* Determines if the first provided role inherits
-* the second role.
-* e.g. admin > member
-*/
-Storage.prototype.inheritRole = function (test, role) {
-	var roleIndex = this.structure.users.role.values.indexOf(role);
-	var testIndex = this.structure.users.role.values.indexOf(test);
+var Storage = Class.extend({
+	init: function (opts) {
+		Storage.super(this, "init");
 
-	if (roleIndex === -1 || testIndex === -1) {
-		return false;
-	}
-
-	return (testIndex <= roleIndex);
-}
-
-/**
-* Creates an object of fields to exclude from
-* the selection.
-*/
-Storage.prototype.validateFields = function (permission, table) {
-	var rules = this.structure[table];
-	var omit = {};
-
-	for (var key in rules) {
-		var rule = rules[key];
-
-		//create the access r/w object
-		var access = typeof rule.access === "string" ? {
-			r: rule.access,
-			w: rule.access
-		} : rule.access;
-
-		//skip if not defined or anyone can view
-		if (!access || access.r === "anyone") { continue; }
-
-		//leave out certain fields that the viewer can't access
-		if (!this.inheritRole(permission, access.r)) {
-			omit[key] = 0;
+		this.name = opts.name;
+		this.schema = opts.schema;
+		this.config = opts.config;
+		this.dir = opts.dir;
+		
+		// every app with storage needs a users collection
+		if (!this.schema.users) {
+			this.schema.users = user_structure;
+		} else {
+			//allow customization of the structure
+			_.defaults(this.schema.users, user_structure);
 		}
-	}
 
-	return omit;
-}
+		var dbConfig = this.config.db;
+		dbConfig.name = this.name;
 
-/**
-* Validates an object for update or insertion
-* into a collection using the provided rules.
-*/
-Storage.prototype.validateData = function (type, permission, data, table) {
-	var rules = this.structure[table] || {};
-	var errors = {};
-	var errorFlag = false;
+		//connect to the database backend
+		this.db = new (require("./db/" + opts.config.db.type))(opts);
+		
+		var f = ff(this, function () {
+			this.db.open(dbConfig, f.slot());
+		}, function () {
+			var group = f.group();
 
-	//should not be multilevel object
-	//look for special data commands
-	for (var key in data) {
-		var rule = rules[key];
-		if (!rule) {
-			//in strict mode, don't allow unknown fields
-			if (this.config.strict) {
+			for (var table in this.schema) {
+				this.db.createTable(table, this.schema[table], group());
+			}
+		}, function () {
+			this.emit("created");
+		}).error(function (err) {
+			console.warn(err)
+		});
+	},
+
+	/**
+	* Returns an array of fields that should
+	* be omitted from the response due to permissions.
+	*/
+	disallowedFields: function (permission, table) {
+		var rules = this.schema[table];
+		var omit = [];
+
+		for (var key in rules) {
+			var rule = rules[key];
+
+			//create the access r/w object
+			var access = typeof rule.access === "string" ? {
+				r: rule.access,
+				w: rule.access
+			} : rule.access;
+
+			//skip if not defined or anyone can view
+			if (!access || access.r === "anyone") { continue; }
+
+			//leave out certain fields that the viewer can't access
+			if (this.inheritRole(permission, access.r) === false) {
+				omit.push(key);
+			}
+		}
+
+		return omit;
+	},
+
+	/**
+	* Determine if the test role supersedes
+	* the required role.
+	*/
+	inheritRole: function (test, role) {
+		var roleIndex = this.schema.users.role.values.indexOf(role);
+		var testIndex = this.schema.users.role.values.indexOf(test);
+
+		// cannot find the role so assume no
+		if (roleIndex === -1 || testIndex === -1) {
+			return false;
+		}
+
+		// admin should always return true
+		if (test == 'admin') {
+			return true;
+		}
+
+		return (testIndex <= roleIndex);
+	},
+
+	validateData: function (req) {
+		var rules = this.schema[req.table] || {};
+		var errors = [];
+		var data = req.body;
+		var permission = req.session.user && req.session.user.role;
+
+		for (var key in data) {
+			var rule = rules[key];
+
+			if (!rule) {
+				// in strict mode, don't allow unknown fields
+				if (this.config.strict) { delete data[key]; }
+				continue;
+			}
+
+			var dataType = (rule.type || rule).toLowerCase();
+			if (dataType === "number") {
+				data[key] = parseFloat(data[key], 10);
+			}
+
+			var error = Validation.test(data[key], rule);
+			if (error.length) {
+				errors.push({message: error.join("\n") });
+			}
+			
+			// determine the access of the field
+			if (!rule.access) { continue; }
+			var access = rule.access.w || rule.access;
+
+			// if the user permission does not have access,
+			// delete the value or set to default
+			if (this.inheritRole(permission, access) === false) {
 				delete data[key];
 			}
-
-			continue;
 		}
 
-		var dataType = (rule.type || rule).toLowerCase();
-		if (dataType === "number") {
-			data[key] = parseFloat(data[key], 10);
-		}
+		// for insertations, need to make sure
+		// required fields are defined, otherwise
+		// set to default value
+		if (req.type === "all") {
+			for (var key in rules) {
+				var rule = rules[key];
 
-		var error = validation.test(data[key], rule);
-		if (error.length) {
-			errors[key] = error.join("\n");
-			errorFlag = true;
+				//already been validated above
+				if (key in data) { continue; }
+				if (typeof rules[key] !== "object") { continue; }
+
+				//required value so create error
+				if (rules[key].required) {
+					errors.push({message: "Cannot find required field: `" + key + "`."});
+				}
+
+				//default value
+				if ("default" in rules[key]) {
+					data[key] = rules[key]["default"];
+				}
+			}
 		}
 		
-		//determine the access of the field
-		if (!rule.access) { continue; }
-		var access = rule.access.w || rule.access;
+		return errors.length && errors;
+	},
 
-		//if the user permission does not have access,
-		//delete the value or set to default
-		if (!this.inheritRole(permission, access)) {
-			delete data[key];
+	post: function (req, next) {
+		parseRequest(req);
 
-			if ("default" in rule) { data[key] = rule["default"]; }
+		var conditions = {};
+		var data = req.body;
+
+		// special permission
+		if (req.permission === "owner" && req.session.user.role !== "admin") {
+			conditions['_creator'] = req.session.user._id;
 		}
-	}
 
-	//for insertations, need to make sure
-	//required fields are defined, otherwise
-	//set to default value
-	if (type === "insert") {
-		for (var key in rules) {
-			//already been validated above
-			if (key in data) { continue; }
-			if (typeof rules[key] !== "object") { continue; }
-
-			//required value so create error
-			if (rules[key].required) {
-				errors[key] = "Cannot find required field: " + key;
-				errorFlag = true;
-			}
-			//default value
-			else if ("default" in rules[key]) {
-				data[key] = rules[key]["default"];
-			}
-		}
-	}
-	
-	return errorFlag && errors;
-}
-
-/**
-* Insert data into a collection
-* through a REST api
-*/
-Storage.prototype.post = function (req, body, next) {
-	var opts = parseRequest(req);
-	var data = body;
-	var permission = req.permission;
-	var where = {};
-
-	if (opts.error) { return next(opts.error); }
-
-	if (!opts.cmd) {
-		//need to use $set for updating
-		//update when there are 3 url parts
-		if (opts.parts >= 3) {
-			data = {"$set": body};
-		}
-	} else {
-		//format for the command
-		if (opts.cmd === "inc") {
-			data = {"$inc": body};
-		}
-	}
-
-	//special permission
-	if (permission === "owner") {
-		where['_creator'] = req.session.user._id;
-	}
-
-	if (opts.parts >= 3) {
-		//add a constraint to the where clause
-		where[opts.field] = opts.value;
-
-		var errors = this.validateData(
-			"update", 
-			permission,
-			body, 
-			opts.table
-		);
-
-		//return an error if validation failed.
+		var errors = this.validateData(req);
 		if (errors) {
 			return next(errors);
 		}
 
-		//update hidden fields
-		var metadata = {};
-		metadata['_lastUpdated'] = Date.now();
-		if (req.session && req.session.user) {
-			metadata['_lastUpdator'] = req.session.user._id;
-			metadata['_lastUpdatorName'] = req.session.user.name;
-		}
+		if (req.cmd == "inc") {
+			this.db.increment(req.table, data, next);
+		} else if (req.type == "filter") {
+			//add a constraint to the where clause
+			conditions[req.field] = req.value;
 
-		//dont create if it doesn't exist, apply to multiple
-		this.db.collection(opts.table).update(where, data, next);
-
-		this.db.collection(opts.table).update(where, {
-			"$set": metadata
-		}, function(){});
-	} else {
-		//validate the data against the rules
-		var errors = this.validateData(
-			"insert", 
-			permission, 
-			data, 
-			opts.table
-		);
-
-		//return an error if validation failed.
-		if (errors) {
-			return next(errors);
-		}
-
-		if (req.session && req.session.user) {
-			data['_creator'] = req.session.user._id;
-			data['_creatorName'] = req.session.user.name;
-		}
-
-		//turn any files into an object
-		if (req.files) {
-			for (var name in req.files) {
-				var file = req.files[name];
-				var ext = file.name.substr(file.name.lastIndexOf("."));
-				var randName = randString() + ext;
-				var destPath = path.join(this.config.static, "upload", name, randName);
-				
-				wrench.mkdirSyncRecursive(path.join(this.dir, this.config.static, "upload", name));
-				fs.rename(file.path, path.join(this.dir, destPath));
-
-				data[name] = {
-					name: file.name,
-					size: file.size,
-					type: file.type,
-					url: destPath
-				};
+			//update hidden fields
+			data['_lastUpdated'] = Date.now();
+			if (req.session && req.session.user) {
+				data['_lastUpdator'] = req.session.user._id;
+				data['_lastUpdatorName'] = req.session.user.name;
 			}
+
+			this.db.modify(req.table, conditions, data, next);
+		} else {
+			// add the user metadata
+			if (req.session && req.session.user) {
+				data['_creator'] = req.session.user._id;
+				data['_creatorName'] = req.session.user.name;
+			}
+
+			data['_created'] = Date.now();
+			this.db.write(req.table, data, next);
+		}
+	},
+
+	// req: Request object 
+	// - session: 
+	// - method:
+	// - url:
+	// - permission:
+	// next: Callback
+	get: function (req, next) {
+		parseRequest(req);
+
+		var options = {};
+		var conditions = {};
+
+		// match the owners at row level
+		if (req.permission === "owner" && req.session.user.role !== "admin") {
+			conditions['_creator'] = req.session.user._id;
 		}
 
-		data['_created'] = Date.now();
-		this.db.collection(opts.table).insert(data, next);
-	}
-};
+		var omit = this.disallowedFields(req.permission, req.table);
 
-/**
-* Retrieve data from a collection
-* through a REST api
-*/
-Storage.prototype.get = function (req, next) {
-	req.method = "get";
-	var opts = parseRequest(req);
-	var queryOpts = {};
-	var permission = req.permission;
-	var where = {};
+		// parse limit options
+		if (req.query.limit) {
+			var limit = req.query.limit.split(",");
+			options.limit = +limit[1] || +limit[0];
+			if (limit.length == 2) { options.skip = +limit[0]; }
+		}
 
-	if (opts.error) { return next(opts.error); }
+		// parse sorting option
+		if (req.query.sort) {
+			var sort = req.query.sort.split(",");
+			var sorter = sort[1] === "desc" ? -1 : 1;
+			options.sort = [[sort[0], sorter]];
+		}
 
-	//match the owners at row level
-	if (permission === "owner" && req.session.user.role !== "admin") {
-		where['_creator'] = req.session.user._id;
-	}
+		// values in array
+		if (req.query['in'] && req.type === "all") {
+			//where[req.field]
+		}
 
-	var omit = this.validateFields(permission, opts.table) || {};
+		if (req.type == "filter") {
+			// add the where constraint
+			conditions[req.field] = req.value;
+		}
 
-	//parse limit options
-	if (opts.query.limit) {
-		var limit = opts.query.limit.split(",");
-		queryOpts.limit = +limit[1] || +limit[0];
-		if (limit.length == 2) { queryOpts.skip = +limit[0]; }
-	}
-
-	//parse sorting option
-	if (opts.query.sort) {
-		var sort = opts.query.sort.split(",");
-		var sorter = sort[1] === "desc" ? -1 : 1;
-		queryOpts.sort = [[sort[0], sorter]];
-	}
-
-	if (opts.parts >= 3) {
-		//add the where constraint
-		where[opts.field] = opts.value;
-
-		this.db.collection(opts.table).find(where, omit, queryOpts, function (err, arr) {
+		this.db.read(req.table, conditions, options, function (err, arr) {
 			if (err) {
 				return next(err);
 			}
 
-			if (opts.query.single) {
+			// omit fields not allowed
+			for (var i = 0; i < arr.length; ++i) {
+				arr[i] = _.omit(arr[i], omit);
+			}
+
+			if (req.query.single) {
 				next(null, arr[0]);
 			} else {
 				next(null, arr);
 			}
 		});
-	}
-	//1 part means list data 
-	else if (opts.parts === 1) {
-		this.db.collection(opts.table).find(where, omit, queryOpts, next);
-	}
-	else {
-		next(null, {error: "Invalid request"});
-	}
-}
+	},
 
-/**
-* Remove data from a collection
-* through a REST api
-*/
-Storage.prototype.delete = function (req, next) {
-	var opts = parseRequest(req);
-	var permission = req.permission;
-	var where = {};
+	delete: function () {
+		parseRequest(req);
+		var conditions = {};
+		
+		//if not the admin, default to owner
+		if (permission === "owner" && req.session.user.role !== "admin") {
+			conditions["_creator"] = req.session.user._id;
+		}
 
-	if (opts.error) { return next(opts.error); }
-	
-	//if not the admin, default to owner
-	if (permission === "owner" && req.session.user.role !== "admin") {
-		where["_creator"] = req.session.user._id;
+		if (req.type == "filter") {
+			conditions[req.field] = req.value;
+		}
+
+		//truncate table
+		this.db.remove(req.table, conditions, next);
 	}
+});
 
-	if (opts.parts >= 3) {
-		where[opts.field] = opts.value;
-	}
-
-	//truncate table
-	this.db.collection(opts.table).remove(where, next);
-};
-
-Storage.init = function (app) {
-	return new Storage(app);
-}
 
 module.exports = Storage;

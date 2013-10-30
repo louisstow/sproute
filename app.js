@@ -8,10 +8,13 @@ var pwd = require("pwd");
 
 var Storage = require("./storage");
 var Greenhouse = require("./greenhouse");
+var Error = require("./lib/Error");
 
 function randString () {
 	return Math.random().toString(36).substr(2);
 }
+
+var ERROR_CODE = 500;
 
 function App (dir) {
 	this.dir = path.resolve(dir);
@@ -48,6 +51,10 @@ App.prototype = {
 			"secret": randString(),
 			"static": "public",
 			"cacheViews": false,
+			"showError": true,
+			"db": {
+				"type": "Mongo"
+			},
 			"port": 8000,
 			"csrf": false
 		};
@@ -88,14 +95,13 @@ App.prototype = {
 	    	server.use(express.csrf());
 	    }
 
-	    var self = this;
+	    // global error handler
 	    server.use(function (err, req, res, next) {
 	    	if (err) {
-	    		self.errorHandler(req, res).call(self, err);
+	    		this.errorHandler(req, res).call(this, err);
 	    	} else next();
-	    });
+	    }.bind(this));
 
-	    this.config.port = this.config.port || 8089;
 	    server.listen(this.config.port);
 	    return server;
 	},
@@ -110,9 +116,8 @@ App.prototype = {
 			console.log(this.config, this.dir)
 			this.controller = JSON.parse(fs.readFileSync(controllerPath));
 		} catch (e) {
-			console.error("Controller at path: [" + controllerPath + "] not found.");
-			console.error(e);
-			console.error(e.stack);
+			console.error("Controller at path: `" + controllerPath + "` not found.");
+			process.exit(1);
 		}
 	},
 
@@ -122,7 +127,10 @@ App.prototype = {
 	*/
 	loadModel: function () {
 		var modelPath = path.join(this.dir, this.config.models);
+		
+		// models are not mandatory so warn in the log
 		if (!fs.existsSync(modelPath)) {
+			console.warn("Models at path `" + modelPath + "` does not exist")
 			return;
 		}
 
@@ -135,36 +143,36 @@ App.prototype = {
 			structure[table] = JSON.parse(fs.readFileSync(path.join(modelPath, file)).toString());
 		}
 
-		this.storage = new Storage({
+		var storage = new Storage({
 			name: this.name, 
-			structure: structure,
+			schema: structure,
 			config: this.config,
-			dir: this.dir,
-
-			//callback when admin needs to be created
-			createAdmin: function () {
-
-				//minimal admin user object
-				var admin = this.config.admin || {
-					name: "admin",
-					email: "admin@admin.com",
-					pass: "admin"
-				};
-
-				admin.role = "admin";
-				admin._created = Date.now();
-
-				//send a mock register request 
-				this.register({
-					session: {
-						user: {role: "admin"},
-					},
-					body: admin,
-					method: "POST",
-					query: {}
-				}, {json: function(){}});
-			}.bind(this)
+			dir: this.dir
 		});
+
+		storage.on("created", function () {
+			// minimal admin user object
+			var admin = this.config.admin || {
+				name: "admin",
+				email: "admin@admin.com",
+				pass: "admin"
+			};
+
+			admin.role = "admin";
+			admin._created = Date.now();
+
+			//send a mock register request 
+			this.register({
+				session: {
+					user: {role: "admin"},
+				},
+				body: admin,
+				method: "POST",
+				query: {}
+			}, {json: function(){}});
+		}.bind(this));
+
+		this.storage = storage;
 	},
 
 	/**
@@ -182,11 +190,6 @@ App.prototype = {
 			console.error("permissions at path: [" + permissionsPath + "] not found.");
 			console.error(e);
 			console.error(e.stack);
-			this.permissions = {
-				"DELETE /data/:name": "owner",
-				"POST /data/:collection/:field/:name": "owner",
-				"POST /data/:collection": "member",
-			};
 		}
 
 		//loop over the urls in permissions
@@ -433,7 +436,7 @@ App.prototype = {
 
 	handlePOST: function (req, res) {
 		//forward the post data to storage
-		this.storage.post(req, req.body, this.response(req, res));
+		this.storage.post(req, this.response(req, res));
 	},
 
 	handleDELETE: function (req, res) {
@@ -445,7 +448,18 @@ App.prototype = {
 	*/
 	getLogged: function (req, res) {
 		if (req.session && req.session.user) {
-			res.json(req.session.user); 
+
+			if (req.query.reload) {
+				// reload the user object
+				this.storage.get({url: "/data/users/_id/" + req.session.user._id + "/?single=true"}, function (err, user) {
+					req.session.user = _.extend({}, user);
+					delete req.session.user.pass;
+					delete req.session.user._salt;
+					res.json(req.session.user);
+				});
+			} else {
+				res.json(req.session.user); 
+			}
 		} else {
 			res.json(false);
 		}
@@ -456,12 +470,12 @@ App.prototype = {
 		var permission = this.testRoute("get", url);
 
 		var f = ff(this, function () {
-			this.storage.db.collection("users").find({name: req.body.name}, f.slot());
+			this.storage.db.read("users", {name: req.body.name}, {}, f.slot());
 		}, function (data) {
 			console.log("LOGIN", data, req.body.name)
 			//no user found, throw error
 			if (!data.length) { 
-				return f.fail("No username "+req.body.name+" found."); 
+				return f.fail("No username `"+req.body.name+"` found."); 
 			}
 
 			if (!req.body.pass) {
@@ -506,15 +520,27 @@ App.prototype = {
 	register: function (req, res) {
 		req.url = "/data/users/";
 
+		var err = [];
+
 		if (req.session.user) {
 			if (req.body.role && !this.storage.inheritRole(req.session.user.role, req.body.role)) {
-				return res.json({error: "Cannot create that role"});
+				err.push({message: "Do not have permission to create the role `"+req.body.role+"`."})
 			}
 		} else {
 			if (req.body.role) {
-				return res.json({error: "Cannot create that role"});
+				err.push({message: "Do not have permission to create the role `"+req.body.role+"`."})
 			}
 		}
+
+		if (!req.body.name) {
+			err.push({message: "No user provided"});
+		}
+
+		if (!req.body.pass) {
+			err.push({message: "No password provided"});
+		}
+
+		if (err.length) { return res.json(ERROR_CODE, err); }
 
 		//for some reason FF doesnt work with pwd...
 		pwd.hash(req.body.pass.toString(), function (err, salt, hash) {
@@ -522,6 +548,8 @@ App.prototype = {
 			req.body._salt = salt.toString();
 			req.body.pass = hash.toString("base64");
 
+			console.log(req.body);
+			
 			var cb = this.response(req, res);
 			this.storage.post(req, req.body, function (err, data) {
 				if (data) { data = data[0]; }
@@ -555,22 +583,20 @@ App.prototype = {
 	errorHandler: function (req, res) {
 		var self = this;
 		return function (err) {
+			var error = new Error(err);
+
 			//log to the server
 			console.error("-----------");
 			console.error("Error occured during %s %s", req.method.toUpperCase(), req.url)
-			console.error(err);
-			console.error(err.stack);
+			if (self.config.showError) {
+				console.error(err);
+				if (err.stack) console.error(err.stack);
+			}
 			console.error("-----------");
 
 			if (self.config.errorView) {
-				self.renderView.call(self, self.config.errorView, {
-					error: {
-						message: err.message || err,
-						stack: err.stack,
-						code: err.code
-					}
-				}, req, res);
-			} else res.json(err)
+				self.renderView.call(self, self.config.errorView, error.template, req, res);
+			} else res.json(ERROR_CODE, error.template)
 		}
 	}
 };
