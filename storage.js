@@ -1,20 +1,17 @@
-var mongo = require("mongodb");
 var ff = require("ff");
 var fs = require("fs");
 var path = require("path");
 var url = require("url");
-var wrench = require("wrench");
 var _ = require("underscore");
-var Class = require("./lib/Class");
 
+var Class = require("./lib/Class");
 var Validation = require("./lib/Validation");
 
 //default user structure
 var user_structure = {
 	name: {type: "String", minlen: 3, unique: true, required: true},
-	email: {type: "String", minlen: 3},
-	pass: {type: "String", minlen: 3, required: true},
-	_salt: {type: "String"},
+	pass: {type: "String", minlen: 3, required: true, access: "owner"},
+	_salt: {type: "String", access: "owner"},
 	role: {type: "String", values: ["admin", "member"], default: "member"}
 };
 
@@ -37,6 +34,13 @@ function parseRequest (req) {
 	var value = parts[2];
 	var cmd   = parts[3];
 
+	// can have a command on table
+	if (parts.length == 2) {
+		cmd = field;
+	}
+
+	console.log("Request", table, field, value, cmd)
+
 	// leave a warning if no permission on a writable request
 	if ((method == "POST" || method == "DELETE") && !req.permission) {
 		console.warn("You should add a permission for `"+req.url+"`.")
@@ -49,7 +53,8 @@ function parseRequest (req) {
 		value: value,
 		cmd: cmd,
 		query: query.query, //query params
-		type: parts.length >= 3 ? "filter" : "all"
+		type: parts.length >= 3 ? "filter" : "all",
+		isLogged: !!(req.session && req.session.user)
 	});
 }
 
@@ -85,6 +90,7 @@ var Storage = Class.extend({
 				this.db.createTable(table, this.schema[table], group());
 			}
 		}, function () {
+			console.log("CREATED DBS")
 			this.emit("created");
 		}).error(function (err) {
 			console.warn(err)
@@ -108,8 +114,8 @@ var Storage = Class.extend({
 				w: rule.access
 			} : rule.access;
 
-			//skip if not defined or anyone can view
-			if (!access || access.r === "anyone") { continue; }
+			// skip if not defined or anyone can view
+			if (!access || access.r === "anyone" || access.r === "owner") { continue; }
 
 			//leave out certain fields that the viewer can't access
 			if (this.inheritRole(permission, access.r) === false) {
@@ -118,6 +124,25 @@ var Storage = Class.extend({
 		}
 
 		return omit;
+	},
+
+	ownerFields: function (table) {
+		var rules = this.schema[table];
+		var fields = [];
+
+		for (var key in rules) {
+			var rule = rules[key];
+
+			var access = typeof rule.access === "string" ? {
+				r: rule.access
+			} : rule.access;
+
+			if (access && access.r == "owner") {
+				fields.push(key)
+			}
+		}
+
+		return fields;
 	},
 
 	/**
@@ -144,8 +169,12 @@ var Storage = Class.extend({
 	validateData: function (req) {
 		var rules = this.schema[req.table] || {};
 		var errors = [];
-		var data = req.body;
-		var permission = req.session.user && req.session.user.role;
+		var data = req.body || {};
+		var permission = null;
+		
+		if (req.session && req.session.user) {
+			permission = req.session.user.role;
+		}
 
 		for (var key in data) {
 			var rule = rules[key];
@@ -169,6 +198,9 @@ var Storage = Class.extend({
 			// determine the access of the field
 			if (!rule.access) { continue; }
 			var access = rule.access.w || rule.access;
+
+			// handled elsewhere
+			if (access === "owner") { continue; }
 
 			// if the user permission does not have access,
 			// delete the value or set to default
@@ -200,6 +232,7 @@ var Storage = Class.extend({
 			}
 		}
 		
+		console.log("ERRORS", errors)
 		return errors.length && errors;
 	},
 
@@ -214,18 +247,26 @@ var Storage = Class.extend({
 			conditions['_creator'] = req.session.user._id;
 		}
 
+		// special case, unfortunately :\
+		if (req.cmd == "in") {
+			return this.get(req, next);
+		}
+
+		// validate the updated data
 		var errors = this.validateData(req);
 		if (errors) {
 			return next(errors);
 		}
 
 		if (req.cmd == "inc") {
-			this.db.increment(req.table, data, next);
+			conditions[req.field] = req.value;
+			console.log("increment", req.table, conditions, data)
+			this.db.increment(req.table, conditions, data, next);
 		} else if (req.type == "filter") {
-			//add a constraint to the where clause
+			// add a constraint to the where clause
 			conditions[req.field] = req.value;
 
-			//update hidden fields
+			// update hidden fields
 			data['_lastUpdated'] = Date.now();
 			if (req.session && req.session.user) {
 				data['_lastUpdator'] = req.session.user._id;
@@ -263,6 +304,7 @@ var Storage = Class.extend({
 		}
 
 		var omit = this.disallowedFields(req.permission, req.table);
+		var ownerFields = this.ownerFields(req.table);
 
 		// parse limit options
 		if (req.query.limit) {
@@ -279,8 +321,9 @@ var Storage = Class.extend({
 		}
 
 		// values in array
-		if (req.query['in'] && req.type === "all") {
-			//where[req.field]
+		if (req.cmd && req.type === "all") {
+			if (!req.body || !Object.keys(req.body).length) { return next("Body empty"); }
+			options = {"in": req.body};
 		}
 
 		if (req.type == "filter") {
@@ -288,7 +331,9 @@ var Storage = Class.extend({
 			conditions[req.field] = req.value;
 		}
 
+		console.log(req.table, conditions, options)
 		this.db.read(req.table, conditions, options, function (err, arr) {
+			console.log("GET", arguments);
 			if (err) {
 				return next(err);
 			}
@@ -296,6 +341,14 @@ var Storage = Class.extend({
 			// omit fields not allowed
 			for (var i = 0; i < arr.length; ++i) {
 				arr[i] = _.omit(arr[i], omit);
+
+				var owner = arr[i]._creator || arr[i]._id;
+				
+				if (!req.isLogged || owner != req.session.user._id) {
+					for (var j = 0; j < ownerFields.length; ++j) {
+						delete arr[i][ownerFields[j]];
+					}
+				}
 			}
 
 			if (req.query.single) {

@@ -1,40 +1,59 @@
 var path = require("path");
+var util = require("util");
 var ff = require("ff");
 var fs = require("fs");
 var _ = require("underscore");
 var express = require("express");
 var mathjs = require("mathjs");
-var pwd = require("pwd");
+var toobusy = require('toobusy');
+var nodemailer = require('nodemailer');
+var recaptcha = require('simple-recaptcha');
 
 var Storage = require("./storage");
 var Greenhouse = require("./greenhouse");
 var Error = require("./lib/Error");
+var pwd = require("./lib/Hash");
 
 function randString () {
-	return Math.random().toString(36).substr(2);
+	return ("00000000" + Math.random().toString(36).substr(2)).substr(-11);
 }
 
 var ERROR_CODE = 500;
 
-function App (dir) {
+function App (dir, opts) {
 	this.dir = path.resolve(dir);
+	opts = opts || {};
 	
 	this._viewCache = {};
+	this._remoteAddrs = {};
 
 	this.loadConfig();
-	this.server = this.loadServer();
 
-	this.loadModel();
-	this.loadPermissions();
-	this.loadController();
+	if (opts.loadServer !== false)
+		this.server = this.loadServer(opts);
 
-	this.loadHook();
+	if (opts.loadModel !== false)
+		this.loadModel();
 
-	for (var route in this.controller) {
-		this.initRoute(route, this.controller[route]);
+	if (opts.loadPermissions !== false)
+		this.loadPermissions();
+
+	if (opts.loadController !== false)
+		this.loadController();
+
+	if (opts.loadViews !== false) {
+		this.loadHook();
+
+		for (var route in this.controller) {
+			this.initRoute(route, this.controller[route]);
+		}
 	}
 
-	this.loadREST();
+	if (opts.loadController !== false)
+		this.loadREST();
+
+	if (opts.loadMailer !== false)
+		this.loadMailer();
 }
 
 App.prototype = {
@@ -52,11 +71,17 @@ App.prototype = {
 			"static": "public",
 			"cacheViews": false,
 			"showError": true,
+			"strict": false,
 			"db": {
 				"type": "Mongo"
 			},
+			"mailer": {
+				"type": "sendmail"
+			},
 			"port": 8000,
-			"csrf": false
+			"csrf": false,
+			"rateLimit": 10,
+			"reCAPTCHA": false
 		};
 
 		try {
@@ -79,15 +104,48 @@ App.prototype = {
 	* Configure the Express server from
 	* the config data.
 	*/
-	loadServer: function () {
+	loadServer: function (opts) {
 		var server = express();
 		var secret = this.config.secret || (this.config.secret = (Math.random() * 10000000 | 0).toString(16));
+		var self = this;
+
+		// gracefully handle many requests
+		if (this.config.strict) {
+			toobusy.maxLag(200);
+			server.use(function(req, res, next) {
+				if (toobusy()) res.json(503, [{message: "I'm busy right now, sorry."}]);
+				else next();
+			});
+
+			// rate limit
+			server.use(function (req, res, next) {
+				if (req.method.toLowerCase() !== "post") { return next(); }
+
+				var ip = req.headers['x-real-ip'] || req.ip;
+				if (!ip || ip == "127.0.0.1") { return next(); }
+
+				// currently blocked
+				if (self._remoteAddrs[ip] === true) {
+					return res.json(420, [{message: "Enhance your calm, bro. Sending too many requests from `"+ip+"`."}])
+				}
+
+				self._remoteAddrs[ip] = true;
+				setTimeout(function () {
+					delete self._remoteAddrs[ip];
+				}, self.config.rateLimit * 1000);
+
+				next();
+			});
+		}
 
 	    server.use(express.cookieParser(secret));
 	    server.use(express.session({secret: secret, cookie: {maxAge: null}}));
 
-	    var staticDir = path.join(this.dir, this.config.static);
-	    server.use("/" + this.config.static, express.static(staticDir, { maxAge: 1 }));
+		if (this.config.static !== false) {
+			var staticDir = path.join(this.dir, this.config.static);
+			server.use("/" + this.config.static, express.static(staticDir, { maxAge: 1 }));
+		}
+
 	    server.use(express.bodyParser());
 	    
 	    //use the anti-CSRF middle-ware if enabled
@@ -102,7 +160,11 @@ App.prototype = {
 	    	} else next();
 	    }.bind(this));
 
-	    server.listen(this.config.port);
+	    // listen could be handled outside
+	    if (opts.listen !== false) {
+		    server.listen(this.config.port);
+		}
+
 	    return server;
 	},
 
@@ -140,7 +202,12 @@ App.prototype = {
 		for (var i = 0; i < files.length; ++i) {
 			var file = files[i];
 			var table = file.split(".")[0];
-			structure[table] = JSON.parse(fs.readFileSync(path.join(modelPath, file)).toString());
+			try {
+				structure[table] = JSON.parse(fs.readFileSync(path.join(modelPath, file)).toString());
+			} catch (e) {
+				console.error("Error parsing model `%s`", table);
+				process.exit(1);
+			}
 		}
 
 		var storage = new Storage({
@@ -150,27 +217,27 @@ App.prototype = {
 			dir: this.dir
 		});
 
-		storage.on("created", function () {
-			// minimal admin user object
-			var admin = this.config.admin || {
-				name: "admin",
-				email: "admin@admin.com",
-				pass: "admin"
-			};
+		// storage.on("created", function () {
+		// 	// minimal admin user object
+		// 	var admin = this.config.admin || {
+		// 		name: "admin",
+		// 		email: "admin@admin.com",
+		// 		pass: "admin"
+		// 	};
 
-			admin.role = "admin";
-			admin._created = Date.now();
+		// 	admin.role = "admin";
+		// 	admin._created = Date.now();
 
-			//send a mock register request 
-			this.register({
-				session: {
-					user: {role: "admin"},
-				},
-				body: admin,
-				method: "POST",
-				query: {}
-			}, {json: function(){}});
-		}.bind(this));
+		// 	//send a mock register request 
+		// 	this.register({
+		// 		session: {
+		// 			user: {role: "admin"},
+		// 		},
+		// 		body: admin,
+		// 		method: "POST",
+		// 		query: {}
+		// 	}, {json: function(){}});
+		// }.bind(this));
 
 		this.storage = storage;
 	},
@@ -232,7 +299,7 @@ App.prototype = {
 				}
 
 				if (flag) {
-					return res.json({error: "You do not have permission to complete this action."})
+					return res.json(ERROR_CODE, [{message: "You do not have permission to complete this action."}])
 				} else next();
 			});
 			
@@ -422,8 +489,18 @@ App.prototype = {
 		//api endpoints
 		this.server.get("/api/logged", this.getLogged.bind(this));
 		this.server.post("/api/login", this.login.bind(this));
+		this.server.post("/api/update", this.update.bind(this));
+		this.server.post("/api/forgot", this.forgot.bind(this));
 		this.server.get("/api/logout", this.logout.bind(this));
+		this.server.get("/api/recover", this.recover.bind(this));
 		this.server.post("/api/register", this.register.bind(this));
+	},
+
+	loadMailer: function () {
+		this.mailer = nodemailer.createTransport(
+			this.config.mailer.type,
+			"/usr/sbin/sendmail"
+		);
 	},
 
 	/**
@@ -451,7 +528,10 @@ App.prototype = {
 
 			if (req.query.reload) {
 				// reload the user object
-				this.storage.get({url: "/data/users/_id/" + req.session.user._id + "/?single=true"}, function (err, user) {
+				this.storage.get({
+					url: "/data/users/_id/" + req.session.user._id + "/?single=true",
+					session: req.session
+				}, function (err, user) {
 					req.session.user = _.extend({}, user);
 					delete req.session.user.pass;
 					delete req.session.user._salt;
@@ -542,20 +622,162 @@ App.prototype = {
 
 		if (err.length) { return res.json(ERROR_CODE, err); }
 
-		//for some reason FF doesnt work with pwd...
-		pwd.hash(req.body.pass.toString(), function (err, salt, hash) {
+		var f = ff(this, function () {
+			if (this.config.reCAPTCHA !== false) {
+				var challenge = req.body.recaptcha_challenge_field;
+	  			var response = req.body.recaptcha_response_field;
+	  			console.log(req.body)
+				recaptcha(this.config.reCAPTCHA, req.ip, challenge, response, f.wait());
+			}
+		}, function () {
+			pwd.hash(req.body.pass.toString(), f.slot());
+		}, function (hash) {
 			//add these fields after validation
-			req.body._salt = salt.toString();
-			req.body.pass = hash.toString("base64");
+			req.body._salt = hash[0];
+			req.body.pass = hash[1];
 
-			console.log(req.body);
-			
 			var cb = this.response(req, res);
-			this.storage.post(req, req.body, function (err, data) {
-				if (data) { data = data[0]; }
+			this.storage.post(req, function (err, data) {
+				if (data) { 
+					data = data[0]; 
+
+					delete data.pass;
+					delete data._salt;
+				}
+
 				cb(err, data);
 			});
-		}.bind(this));
+		}).error(this.errorHandler(req, res));
+	},
+
+	update: function (req, res) {
+		var err = [];
+
+		if (!req.session || !req.session.user) {
+			err.push({message: "Must be logged in"});
+		}
+
+		if (!req.body.pass) {
+			err.push({message: "No password provided"});
+		}
+
+		if (err.length) { return res.json(ERROR_CODE, err); }
+
+		var user = req.session.user;
+
+		var f = ff(this, function () {
+			this.storage.get({
+				url: "/data/users/_id/" + req.session.user._id + "/?single=true",
+				session: req.session
+			}, f.slot());
+		}, function (user) {
+			f.pass(user);
+			pwd.hash(req.body.pass, user._salt, f.slot());
+		}, function (user, pass) {
+			// valid password, update details
+			if (user.pass === pass.toString("base64")) {
+				delete req.body.pass;
+
+				// handle new passwords
+				if (req.body.newpass) {
+					pwd.hash(req.body.newpass, f.slot());
+					delete req.body.newpass;
+				}
+			} else {
+				f.fail({message: "Incorrect password"});
+			}
+		}, function (hash) {
+			if (hash) {
+				req.body._salt = hash[0];
+				req.body.pass = hash[1];
+			}
+
+			this.storage.post({
+				url: "/data/users/_id/" + user._id,
+				body: req.body,
+				session: req.session
+			}, f.slot());
+		}, function () {
+			res.json("ok");
+		}).error(this.errorHandler(req, res));
+	},
+
+	forgot: function (req, res) {
+		var f = ff(this, function () {
+			this.storage.get({
+				url: "/data/users/name/" + req.body.name + "/?single=true"
+			}, f.slot());
+		}, function (user) {
+			// only allow sending authkey once every 2 hours
+			if (user.authkey) {
+				var key = parseInt(user.authkey.substring(0, user.authkey.length - 11), 16);
+				var diff = key - Date.now();
+
+				if (diff > 0) {
+					var hours = diff / 60 / 60 / 1000;
+					return f.fail([{message: "Must wait " + hours.toFixed(1) + " hours before sending another recovery email."}]);
+				}
+			}
+
+			// make sure key is > Date.now()
+			var key = (Date.now() + 2 * 60 * 60 * 1000).toString(16);
+			key += randString(); // a touch of randomness
+
+			this.storage.post({
+				url: "/data/users/name/" + req.body.name,
+				body: {authkey: key},
+				session: App.adminSession
+			});
+
+			console.log("BEFORE MAIL");
+			this.mailer.sendMail({
+			 	from: this.config.mailer.from,
+				to: user.name,
+				subject: "Recover Pixenomics Password",
+				text: "You have received this email because you forgot your password. If you did not forget, simply ignore this email. Click the following link to reset the password. The link will expire within 2 hours.\n\nhttp://pixenomics.com/api/recover?auth=" + key
+			}, f.slot());
+		}).error(this.errorHandler(req, res));
+	},
+
+	recover: function (req, res) {
+		if (!req.query.auth) {
+			return res.json(ERROR_CODE, [{message: "No authkey provided."}])
+		}
+
+		// could be very invalid keys
+		var key = req.query.auth;
+		key = parseInt(key.substring(0, key.length - 11), 16);
+
+		var diff = key - Date.now();
+
+		// key has expired
+		if (isNaN(diff) || diff <= 0) {
+			return res.json(ERROR_CODE, [{message: "Auth token provided has expired. Send another recovery email."}])
+		}
+
+		var newpass = randString();
+
+		var f = ff(this, function () {
+			pwd.hash(newpass, f.slot());
+
+			this.storage.get({
+				url: "/data/users/authkey/" + req.query.auth + "/?single=true",
+				session: App.adminSession
+			}, f.slot());
+		}, function (hash, user) {
+			if (!user) {
+				return f.fail([{message: "Cannot find user with that authkey."}])
+			}
+
+			// update the new password and clear the key
+			this.storage.post({
+				url: "/data/users/_id/" + user._id,
+				body: {pass: hash[1], _salt: hash[0], authkey: ""},
+				session: App.adminSession
+			}, f.slot());
+		}, function () {
+			this.renderView("forgot", {newpass: newpass}, req, res);
+		}).error(this.errorHandler(req, res));
 	},
 
 	/**
@@ -583,6 +805,11 @@ App.prototype = {
 	errorHandler: function (req, res) {
 		var self = this;
 		return function (err) {
+			// do not show code in strict mode
+			if (self.config.strict) {
+				if (err.stack) delete err.stack;
+			}
+
 			var error = new Error(err);
 
 			//log to the server
@@ -599,6 +826,10 @@ App.prototype = {
 			} else res.json(ERROR_CODE, error.template)
 		}
 	}
+};
+
+App.adminSession = {
+	user: { role: "admin" }
 };
 
 module.exports = App;

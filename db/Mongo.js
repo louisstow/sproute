@@ -14,6 +14,14 @@ var mongo_options = {
 	find: {}
 }
 
+function convertObjectId(conditions) {
+	if (conditions._id) {
+		try {
+			conditions._id = new mongo.ObjectID(conditions._id)
+		} catch (er) {}
+	}
+}
+
 var Mongo = Interface.extend({
 	open: function (config, next) {
 		// setup the mongo connection
@@ -27,11 +35,21 @@ var Mongo = Interface.extend({
 	},
 
 	createTable: function (table, fields, next) {
-		try {
-			this.connection.createCollection(table, mongo_options.open, next)
-		} catch (err) {
-			this.emit("table-exists", table);
-		}
+		var self = this;
+		this.connection.createCollection(table, mongo_options.open, function () {
+			// create unique indexes
+			for (var key in fields) {
+				var rule = fields[key];
+				if (rule.unique) {
+					var ufields = {};
+					ufields[key] = 1;
+					self.createIndex(table, ufields, {unique: true});
+				}
+			}
+
+			// ignore any error for now
+			next();
+		})
 	},
 
 	createIndex: function (table, fields, config, next) {
@@ -43,30 +61,58 @@ var Mongo = Interface.extend({
 	},
 
 	read: function (table, conditions, options, next) {
+		if (conditions._id) {
+			conditions._id = new mongo.ObjectID(conditions._id)
+		}
+
+		if (options['in']) {
+			var inOpts = options['in'];
+			var key = Object.keys(inOpts)[0];
+
+			if (key == '_id') {
+				for (var i = 0; i < inOpts[key].length; ++i) {
+					try {
+						inOpts[key][i] = mongo.ObjectID(inOpts[key][i])
+					} catch (e) {}
+				}
+			}
+
+			conditions[key] = {'$in': inOpts[key]};
+			options = {};
+		}
+
 		var f = ff(this, function () {
 			this.connection.collection(table, mongo_options.collection, f.slot());	
 		}, function (collection) {
-			collection.find(conditions, options).toArray(next)
-		}).error(next);
+			collection.find(conditions, options).toArray(f.slot())
+		}).cb(next);
 	},
 
 	write: function (table, data, next) {
+		console.log("omg")
 		var f = ff(this, function () {
+			console.log("BAH", data)
 			this.connection.collection(table, mongo_options.collection, f.slot());	
 		}, function (collection) {
+			console.log("WRITE", data)
 			collection.insert(data, mongo_options.insert, f.slot());
 		}).cb(next);
 	},
 
 	modify: function (table, conditions, data, next) {
+		convertObjectId(conditions);
+
 		var f = ff(this, function () {
 			this.connection.collection(table, mongo_options.collection, f.slot());	
 		}, function (collection) {
+			console.log("MODIFY", conditions, data)
 			collection.update(conditions, {"$set": data}, mongo_options.update, f.slot());
 		}).cb(next);
 	},
 
 	remove: function (table, conditions, next) {
+		convertObjectId(conditions);
+
 		var f = ff(this, function () {
 			this.connection.collection(table, mongo_options.collection, f.slot());	
 		}, function (collection) {
@@ -74,11 +120,14 @@ var Mongo = Interface.extend({
 		}).cb(next);
 	},
 
-	increment: function (table, data, next) {
+	increment: function (table, conditions, data, next) {
+		convertObjectId(conditions);
+
 		var f = ff(this, function () {
 			this.connection.collection(table, mongo_options.collection, f.slot());	
 		}, function (collection) {
-			collection.update({"$inc": data}, mongo_options.modify, f.slot());
+			console.log(conditions, {"$inc": data})
+			collection.update(conditions, {"$inc": data}, mongo_options.modify, f.slot());
 		}).cb(next);
 	}
 });
