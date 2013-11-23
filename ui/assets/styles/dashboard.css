@@ -1,0 +1,24 @@
+label {
+	display: block;
+	margin: 5px 0;
+}
+
+.Field {
+	margin: 15px;
+	padding: 10px;
+	border: 1px solid #ccc;
+}
+
+label.floater {
+	width: 180px;
+	float: left;
+}
+
+.clearer {
+	clear: both;
+	display: block;
+}
+
+.hint {
+	color: #666;
+}

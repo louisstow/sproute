@@ -44,8 +44,12 @@ function App (dir, opts) {
 	if (opts.loadViews !== false) {
 		this.loadHook();
 
+		if (this.config.showAdmin) {
+			this.initRoute("/admin", path.join(__dirname, "ui/views/dashboard"));
+		}
+
 		for (var route in this.controller) {
-			this.initRoute(route, this.controller[route]);
+			this.initRoute(route, path.join(this.dir, this.config.views, this.controller[route]));
 		}
 	}
 
@@ -54,6 +58,10 @@ function App (dir, opts) {
 
 	if (opts.loadMailer !== false)
 		this.loadMailer();
+
+	if (this.config.showAdmin) {
+		require("./ui/admin").init(this);
+	}
 }
 
 App.prototype = {
@@ -71,6 +79,7 @@ App.prototype = {
 			"static": "public",
 			"cacheViews": false,
 			"showError": true,
+			"showAdmin": true,
 			"strict": false,
 			"db": {
 				"type": "Mongo"
@@ -153,6 +162,11 @@ App.prototype = {
 	    	server.use(express.csrf());
 	    }
 
+	    if (this.config.showAdmin) {
+	    	var staticDir = path.join(__dirname, "ui/assets");
+	    	server.use("/admin/assets/", express.static(staticDir, { maxAge: 1 }));
+	    }
+
 	    // global error handler
 	    server.use(function (err, req, res, next) {
 	    	if (err) {
@@ -202,6 +216,8 @@ App.prototype = {
 		for (var i = 0; i < files.length; ++i) {
 			var file = files[i];
 			var table = file.split(".")[0];
+			if (!table) { continue; }
+
 			try {
 				structure[table] = JSON.parse(fs.readFileSync(path.join(modelPath, file)).toString());
 			} catch (e) {
@@ -217,28 +233,7 @@ App.prototype = {
 			dir: this.dir
 		});
 
-		// storage.on("created", function () {
-		// 	// minimal admin user object
-		// 	var admin = this.config.admin || {
-		// 		name: "admin",
-		// 		email: "admin@admin.com",
-		// 		pass: "admin"
-		// 	};
-
-		// 	admin.role = "admin";
-		// 	admin._created = Date.now();
-
-		// 	//send a mock register request 
-		// 	this.register({
-		// 		session: {
-		// 			user: {role: "admin"},
-		// 		},
-		// 		body: admin,
-		// 		method: "POST",
-		// 		query: {}
-		// 	}, {json: function(){}});
-		// }.bind(this));
-
+		this.structure = structure;
 		this.storage = storage;
 	},
 
@@ -307,7 +302,7 @@ App.prototype = {
 	},
 
 	loadView: function (view, next) {
-		var viewPath = path.join(this.dir, this.config.views, view + "." + this.config.extension);
+		var viewPath = path.resolve(view + "." + this.config.extension);
 
 		var f = ff(this, function () {
 			//check the view template exists
@@ -395,7 +390,7 @@ App.prototype = {
 
 				//return the first matching type
 				if (userType) {
-					return userType
+					return userType;
 				}
 			}
 		}

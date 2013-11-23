@@ -12,7 +12,7 @@ var user_structure = {
 	name: {type: "String", minlen: 3, unique: true, required: true},
 	pass: {type: "String", minlen: 3, required: true, access: "owner"},
 	_salt: {type: "String", access: "owner"},
-	role: {type: "String", values: ["admin", "member"], default: "member"}
+	role: {type: "String", values: ["admin", "member"], default: "member", access: {r: "anyone", w: "admin"}}
 };
 
 function randString () {

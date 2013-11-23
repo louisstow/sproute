@@ -1,0 +1,28 @@
+{{ asset /admin/assets/styles/dashboard.css }}
+
+<h1>Sproute Dashboard</h1>
+
+<h2>New</h2>
+<ul>
+	<li><a href="#page" class="page">Page</a></li>
+	<li><a href="#model" class="model">Model</a></li>
+	<li><a href="#route" class="route">Route</a></li>
+</ul>
+
+<h2>Modify</h2>
+<ul>
+	<li><a href="#template" class="template">Template</a></li>
+	<li><a href="#permissions" class="permissions">Permissions</a></li>
+	<li><a href="#config" class="config">Config</a></li>
+</ul>
+
+<div id="page">
+
+</div>
+
+{{ asset /admin/assets/vendor/jquery.min.js }}
+{{ asset /admin/assets/vendor/Spineless.js }}
+
+{{ asset /admin/assets/src/index.js }}
+{{ asset /admin/assets/src/Page.js }}
+{{ asset /admin/assets/src/Model.js }}
