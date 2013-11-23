@@ -360,7 +360,7 @@ var View = Event.extend({
 			child = this.children[i];
 
 			for (var key in conditions) {
-				if (child[key] != conditions[key]) {
+				if (child[key] != conditions[key] || child.model[key] != conditions[key]) {
 					match = false;
 					break;
 				}
@@ -496,7 +496,7 @@ var View = Event.extend({
 			} else {
 				value = input.value;
 			}
-
+			
 			//if value has actually been set
 			if (value !== undefined) {
 				var oldvalue = this.model[key];
@@ -603,6 +603,10 @@ var View = Event.extend({
 		}
 
 		var id = '' + getUID();
+		var type = "";
+
+		if (method == "POST" || method == "DELETE")
+			type = 'application/json';
 
 		var self = this;
 		Spineless.$.ajax({
@@ -610,7 +614,7 @@ var View = Event.extend({
 			url: url,
 			dataType: 'json',
 			data: JSON.stringify(data),
-			contentType: method == "POST" && 'application/json',
+			contentType: type,
 
 			success: function (resp) {
 				self.emit(id, resp);
@@ -670,7 +674,7 @@ View.toDOM = function (ctx, obj, parent) {
 	}
 
 	//template is a view instead of DOM
-	if (obj.view) {
+	if (obj.view && typeof obj.view === "string") {
 		obj.superview = parent
 		var view = new obj.view(obj);
 		//view.superview = parent;

@@ -48,7 +48,7 @@ var PageController = Spineless.View.extend({
 			console.log("POST", this.model.name)
 			
 			//exists already
-			if (this.find({name: this.mode.name})) {
+			if (this.find({name: this.model.name})) {
 				return;
 			}
 

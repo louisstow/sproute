@@ -127,7 +127,16 @@ var Admin = {
 				app.controller[key] = c[key];
 			}
 
-			fs.writeFile(path.join(app.dir, "controller.json"), JSON.stringify(app.config, null, '\t'));
+			fs.writeFile(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
+
+			res.json("ok");
+		});
+
+		app.server.delete("/admin/controller", function (req, res) {
+			var c = req.body;
+			console.log(c)
+			delete app.controller[c.route];
+			fs.writeFile(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
 
 			res.json("ok");
 		});

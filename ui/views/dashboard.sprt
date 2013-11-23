@@ -26,3 +26,4 @@
 {{ asset /admin/assets/src/index.js }}
 {{ asset /admin/assets/src/Page.js }}
 {{ asset /admin/assets/src/Model.js }}
+{{ asset /admin/assets/src/Route.js }}
