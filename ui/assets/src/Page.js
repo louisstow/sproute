@@ -35,9 +35,10 @@ var PageController = Spineless.View.extend({
 
 	onViews: function (views) {
 		for (var i = 0; i < views.length; ++i) {
+			var n = views[i].substring(0, views[i].lastIndexOf("."))
 			this.addChild(new Page({
 				superview: this.list,
-				view: views[i]
+				name: n
 			}));
 		}
 	},
@@ -48,13 +49,14 @@ var PageController = Spineless.View.extend({
 			console.log("POST", this.model.name)
 			
 			//exists already
-			if (this.find({name: this.model.name})) {
+			console.log(this.find({name: this.model.name}), this.model.name)
+			if (this.find({name: this.model.name}).length) {
 				return;
 			}
 
 			this.addChild(new Page({
 				superview: this.list,
-				view: this.model.name + ".sprt"
+				name: this.model.name
 			}));
 		});
 	},
@@ -64,7 +66,6 @@ var PageController = Spineless.View.extend({
 		this.set("name", view);
 
 		this.on("sync:" + id, function (resp) {
-			console.log(resp)
 			this.set("content", resp)
 		});
 	}
@@ -72,7 +73,7 @@ var PageController = Spineless.View.extend({
 
 var Page = Spineless.View.extend({
 	defaults: {
-		view: null
+		name: ""
 	},
 
 	template: [
@@ -86,18 +87,16 @@ var Page = Spineless.View.extend({
 	},
 
 	onClick: function () {
-		var n = this.model.view.substring(0, this.model.view.lastIndexOf(".sprt"))
-		this.emit("selected", n);
+		this.emit("selected", this.model.name);
 	},
 
 	onCancel: function () {
-		var id = this.delete("/admin/views/" + this.model.view);
+		var id = this.delete("/admin/views/" + this.model.name);
 		this.once(id, this.removeFromParent);
 	},
 
 	render: function () {
-		var n = this.model.view.substring(0, this.model.view.lastIndexOf(".sprt"))
-		this.name.textContent = n;
+		this.name.textContent = this.model.name;
 	}
 });
 

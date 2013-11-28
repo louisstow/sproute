@@ -21,11 +21,14 @@ function randString () {
 var ERROR_CODE = 500;
 
 function App (dir, opts) {
+	console.log("APP", dir, opts)
 	this.dir = path.resolve(dir);
 	opts = opts || {};
+	this.opts = opts;
 	
 	this._viewCache = {};
 	this._remoteAddrs = {};
+	this._sockets = [];
 
 	this.loadConfig();
 
@@ -46,6 +49,7 @@ function App (dir, opts) {
 
 		if (this.config.showAdmin) {
 			this.initRoute("/admin", path.join(__dirname, "ui/views/dashboard"));
+			this.initRoute("/admin/login", path.join(__dirname, "ui/views/login"));
 		}
 
 		for (var route in this.controller) {
@@ -62,6 +66,8 @@ function App (dir, opts) {
 	if (this.config.showAdmin) {
 		require("./ui/admin").init(this);
 	}
+
+	this._restarting = false;
 }
 
 App.prototype = {
@@ -176,7 +182,18 @@ App.prototype = {
 
 	    // listen could be handled outside
 	    if (opts.listen !== false) {
-		    server.listen(this.config.port);
+		    server.http = server.listen(this.config.port);
+
+		    server.http.on("connection", function (sock) {
+		    	this._sockets.push(sock);
+		    }.bind(this));
+
+		    server.http.on("close", function (sock) {
+		    	var idx = this._sockets.indexOf(sock);
+		    	if (idx !== -1) {
+		    		this._sockets.splice(idx, 1);
+		    	}
+		    }.bind(this));
 		}
 
 	    return server;
@@ -325,7 +342,7 @@ App.prototype = {
 		}).cb(next);
 	},
 
-	renderView: function (view, data, req, res) {
+	renderView: function (view, data, req, res, next) {
 		//build the data to pass into template
 		_.extend(data, {
 			params: req.params, 
@@ -353,14 +370,14 @@ App.prototype = {
 
 			g.onerror = function (error) {
 				res.json(error);
-			}
+			};
+
+			g.onredirect = function (url) {
+				res.redirect(url);
+			};
 
 			g.render(template, data);
-		}).error(function (err) {
-			console.error(err)
-			console.error(err.stack)
-			res.send(500);
-		});
+		}).cb(next);
 	},
 
 	/**
@@ -446,6 +463,11 @@ App.prototype = {
 				this.pieces.push(JSON.stringify(value));
 				this.start = block.end + 1;
 				next();
+			},
+
+			redirect: function (block, next) {
+				this.onredirect && this.onredirect.call(this, block.expr);
+				return false;
 			}
 		};
 
@@ -771,7 +793,10 @@ App.prototype = {
 				session: App.adminSession
 			}, f.slot());
 		}, function () {
-			this.renderView("forgot", {newpass: newpass}, req, res);
+			this.renderView(
+				path.join(this.config.views, "forgot"), 
+				{newpass: newpass}, req, res
+			);
 		}).error(this.errorHandler(req, res));
 	},
 
@@ -816,10 +841,46 @@ App.prototype = {
 			}
 			console.error("-----------");
 
+			// render the error view
 			if (self.config.errorView) {
-				self.renderView.call(self, self.config.errorView, error.template, req, res);
+				self.renderView.call(self, 
+					path.join(this.config.views, self.config.errorView), 
+					{error: error.template}, 
+					req, res,
+					function (err) {
+						// in case of error in error
+						if (err) {
+							res.json(ERROR_CODE, error.template)
+						}
+					}
+				);
 			} else res.json(ERROR_CODE, error.template)
 		}
+	},
+
+	reload: function () {
+		console.log("--- Closing Server ---");
+
+
+		setTimeout(function () {	
+			this._restarting = true;
+
+			// once all open sockets have ended
+			// destroy the sockets and clear the cache
+			for (var i = 0; i < this._sockets.length; ++i) {
+				console.log("Destroy socket #" + i);
+				this._sockets[i].destroy();
+			}
+
+			this._sockets.length = 0;
+		
+			// close the HTTP server and create a new one
+			this.server.http.close(function () {
+				console.log("Call constructor");
+				App.call(this, this.dir, this.opts);	
+			}.bind(this));
+
+		}.bind(this), 3000);
 	}
 };
 

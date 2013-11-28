@@ -266,9 +266,11 @@ var View = Event.extend({
 		for (var item in this.defaults) {
 			if (item in opts) {
 				this.model[item] = opts[item];
+				console.log(this.model[item] , opts[item])
 				//delete opts[item];
 			} else {
 				this.model[item] = this.defaults[item];
+				console.log(this.model[item] , this.defaults[item])
 			}
 		}
 
@@ -360,7 +362,7 @@ var View = Event.extend({
 			child = this.children[i];
 
 			for (var key in conditions) {
-				if (child[key] != conditions[key] || child.model[key] != conditions[key]) {
+				if (child[key] != conditions[key] && child.model[key] != conditions[key]) {
 					match = false;
 					break;
 				}
@@ -430,9 +432,7 @@ var View = Event.extend({
 			this.container = container;
 		}
 
-		try {
-			this.container.appendChild(frag);
-		} catch(e) { debugger; }
+		this.container.appendChild(frag);
 		parent.appendChild(this.container);
 	},
 
@@ -524,8 +524,6 @@ var View = Event.extend({
 			//otherwise setup an interval to poll the value
 			this._interval = setInterval(handleChange, 300);
 		}
-
-		handleChange.call(this);
 	},
 
 	_unbindForms: function () {

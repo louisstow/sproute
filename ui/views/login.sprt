@@ -1,0 +1,13 @@
+<form action="/api/login?goto=/admin" method="post">
+<label>
+	<span>Username:</span>
+	<input type="text" name="name" />
+</label>
+
+<label>
+	<span>Password:</span>
+	<input type="password" name="pass" />
+</label>
+
+<button type="submit">Login to Dashboard</button>
+</form>

@@ -1,5 +1,14 @@
-{{ asset /admin/assets/styles/dashboard.css }}
+{{ unless session.user }}
+	{{ redirect /admin/login }}
+{{ / }}
 
+<!DOCTYPE html>
+<html>
+<head>
+{{ asset /admin/assets/styles/dashboard.css }}
+<title>Sproute Dashboard</title>
+</head>
+<body>
 <h1>Sproute Dashboard</h1>
 
 <h2>New</h2>
@@ -27,3 +36,8 @@
 {{ asset /admin/assets/src/Page.js }}
 {{ asset /admin/assets/src/Model.js }}
 {{ asset /admin/assets/src/Route.js }}
+{{ asset /admin/assets/src/Config.js }}
+{{ asset /admin/assets/src/Permission.js }}
+
+</body>
+</html>

@@ -2,6 +2,22 @@ var fs = require("fs");
 var ff = require("ff");
 var path = require("path");
 
+var allowedKeys = [
+	'name',
+	'controller',
+	'models',
+	'views',
+	'extension',
+	'static',
+	'strict',
+	'cacheViews',
+	'showError',
+	'errorView',
+	'csrf',
+	'reCAPTCHA',
+	'rateLimit'
+];
+
 var Admin = {
 	init: function (app) {
 		this.setupRoutes(app);
@@ -41,7 +57,12 @@ var Admin = {
 		});
 
 		app.server.get("/admin/config", function (req, res) {
-			res.json(app.config)
+			var hash = {};
+			for (var i = 0; i < allowedKeys.length; ++i) {
+				hash[allowedKeys[i]] = app.config[allowedKeys[i]];
+			}
+
+			res.json(hash)
 		});
 
 		app.server.get("/admin/permissions", function (req, res) {
@@ -51,8 +72,10 @@ var Admin = {
 		app.server.post("/admin/views", function (req, res) {
 			console.log(app.dir, app.config.views, req.body.name + ".sprt")
 			var p = path.join(app.dir, app.config.views, req.body.name + ".sprt");
-			fs.writeFile(p, req.body.content);
+			fs.writeFileSync(p, req.body.content);
+
 			res.json("ok");
+			app.reload();
 		});
 
 		app.server.delete("/admin/views/:name", function (req, res) {
@@ -61,10 +84,11 @@ var Admin = {
 				return res.send(500);
 			}
 
-			var p = path.join(app.dir, app.config.views, name);
+			var p = path.join(app.dir, app.config.views, name + "." + app.config.extension);
 			fs.unlink(p);
 
 			res.json("ok");
+			app.reload();
 		});
 
 		app.server.post("/admin/models", function (req, res) {
@@ -82,8 +106,11 @@ var Admin = {
 			app.structure[name] = d;
 
 			var p = path.join(app.dir, app.config.models, req.body.name + ".json");
-			fs.writeFile(p, JSON.stringify(d, null, '\t'));
+			fs.writeFileSync(p, JSON.stringify(d, null, '\t'));
+			
+			
 			res.json("ok");
+			app.reload();
 		});
 
 		app.server.delete("/admin/models/:name", function (req, res) {
@@ -97,17 +124,24 @@ var Admin = {
 			delete app.structure[name];
 
 			res.json("ok");
+			app.reload();
 		});
 
 		app.server.post("/admin/config", function (req, res) {
 			var c = req.body;
 			for (var key in c) {
+				if (allowedKeys.indexOf(key) == -1) {
+					console.error("Illegal key", key)
+					continue;
+				}
+
 				app.config[key] = c[key];
 			}
 
-			fs.writeFile(path.join(app.dir, "config.json"), JSON.stringify(app.config, null, '\t'));
+			fs.writeFileSync(path.join(app.dir, "config.json"), JSON.stringify(app.config, null, '\t'));
 
 			res.json("ok");
+			app.reload();
 		});
 
 		app.server.post("/admin/permissions", function (req, res) {
@@ -116,9 +150,20 @@ var Admin = {
 				app.permissions[key] = c[key];
 			}
 
-			fs.writeFile(path.join(app.dir, "permissions.json"), JSON.stringify(app.config, null, '\t'));
+			fs.writeFileSync(path.join(app.dir, "permissions.json"), JSON.stringify(app.permissions, null, '\t'));
 
 			res.json("ok");
+			app.reload();
+		});
+
+		app.server.delete("/admin/permissions", function (req, res) {
+			var c = req.body;
+			console.log(c)
+			delete app.permissions[c.route];
+			fs.writeFileSync(path.join(app.dir, "permissions.json"), JSON.stringify(app.permissions, null, '\t'));
+
+			res.json("ok");
+			app.reload();
 		});
 
 		app.server.post("/admin/controller", function (req, res) {
@@ -127,18 +172,21 @@ var Admin = {
 				app.controller[key] = c[key];
 			}
 
-			fs.writeFile(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
-
+			fs.writeFileSync(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
+			
 			res.json("ok");
+			app.reload();
 		});
 
 		app.server.delete("/admin/controller", function (req, res) {
 			var c = req.body;
 			console.log(c)
 			delete app.controller[c.route];
-			fs.writeFile(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
+			fs.writeFileSync(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
 
 			res.json("ok");
+
+			app.reload();
 		});
 	}
 };

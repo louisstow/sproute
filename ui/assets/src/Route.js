@@ -8,7 +8,7 @@ var RouteController = Spineless.View.extend({
 
 		{tag: "label", children: [
 			{tag: "span", text: "Page: "},
-			{tag: "select", id: "view"}
+			{tag: "select", id: "name"}
 		]},
 
 		{tag: "button", id: "submit", text: "Add Route"}
@@ -19,34 +19,34 @@ var RouteController = Spineless.View.extend({
 	},
 
 	defaults: {
-		"view": "",
+		"name": "",
 		"route": ""
 	},
 
 	init: function () {
 		RouteController.super(this, "init", arguments);
 
-		var id = this.sync("get", "/admin/views");
-		this.once(id, function (views) {
+		this.sync("get", "/admin/views");
+		this.once("sync:get", function (views) {
 			console.log(views)
 			//this.template
 			for (var i = 0; i < views.length; ++i) {
 				views[i] = views[i].substring(0, views[i].lastIndexOf(".sprt"))
 
-				this.view.appendChild(Spineless.View.toDOM({
+				this.name.appendChild(Spineless.View.toDOM({
 					tag: "option",
 					value: views[i],
 					text: views[i]
 				}));
 			}
 
+			this.model.name = views[0];
 			this.views = views;
 
-			var id = this.sync("get", "/admin/controller");
-			this.once(id, function (resp) {
+			this.sync("get", "/admin/controller");
+			this.once("sync:get", function (resp) {
 				for (var key in resp) {
 					var n = resp[key];
-					console.log(n, resp[key])
 
 					this.addChild(new Route({
 						superview: this.routeList,
@@ -61,10 +61,10 @@ var RouteController = Spineless.View.extend({
 
 	onSubmit: function () {
 		var d = {};
-		d[this.model.route] = this.model.view;
-
+		d[this.model.route] = this.model.name;
+		console.log(d, this.model)
 		this.post("/admin/controller", d);
-		this.once("sync:post", function () {
+		this.once("sync:post error:post", function () {
 			if (this.find({route: this.model.route}).length) {
 				return;
 			}
@@ -97,8 +97,8 @@ var Route = Spineless.View.extend({
 
 	onCancel: function () {
 		this.delete("/admin/controller", {route: this.model.route})
-		this.once("sync:delete", function () {
-			console.log("DELETE")
+		this.once("sync:delete error:delete", function () {
+			this.removeFromParent();
 		});
 	},
 

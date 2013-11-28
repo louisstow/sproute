@@ -27,7 +27,7 @@ function escapeHtml (string) {
 
 function asyncEach (arr, ctx, iterator, callback) {
     callback = callback || function () {};
-    if (!arr.length) {
+    if (!arr || !arr.length) {
         return callback.call(ctx);
     }
     var completed = 0;
@@ -257,8 +257,11 @@ Greenhouse.prototype.tokenize = function (template) {
 				token.eval = expression[0] !== "#";
             }
             //a conditional statement
-            else if (expression.substr(0, 2).toLowerCase() === "if") {
+            else if (expression.substr(0, 2).toLowerCase() === "if" ||
+                     expression.substr(0, 6).toLowerCase() === "unless") {
+
                 token.type = types.CONDITION;
+                token.negate = expression.indexOf("unless") == 0;
                 token.expr = expression.substr(3);
                 token.startTrue = idx + 2;
                 token.start = openTag - 1;
@@ -333,6 +336,10 @@ Greenhouse.prototype.tokenize = function (template) {
                 //need to swap the parent
                 //to the parent of the last condition
                 var lastCondition = openCondition.pop();
+
+                if (!lastCondition) {
+                    continue
+                }
 
                 //save a pointer to the end of condition
                 if (lastCondition.else) { lastCondition.endFalse = idx + 2; }
@@ -493,6 +500,10 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                     else { this.start = block.endTrue; }
                     next();
                 };
+
+                if (block.negate) {
+                    result = !result;
+                }
 
                 //if the expressions evaluates to
                 //true, execute the onTrue blocks

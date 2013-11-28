@@ -97,6 +97,17 @@ var ModelController = Spineless.View.extend({
 		this.post("/admin/models", {
 			name: this.model.name,
 			content: structure//JSON.stringify(structure)
+		});
+
+		this.once("sync:post", function () {
+			if (this.find({name: this.model.name}).length) {
+				return;
+			}
+
+			this.addChild(new Model({
+				superview: this.list,
+				name: this.model.name
+			}))
 		})
 		console.log(structure)
 	},
