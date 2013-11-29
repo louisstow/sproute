@@ -36,7 +36,7 @@ function getUID () {
 }
 
 function isEmpty (v) {
-	return v === undefined || v === null || v === "";
+	return v === undefined || v === null;
 }
 
 //save reference to prototype methods
@@ -270,7 +270,6 @@ var View = Event.extend({
 				//delete opts[item];
 			} else {
 				this.model[item] = this.defaults[item];
-				console.log(this.model[item] , this.defaults[item])
 			}
 		}
 

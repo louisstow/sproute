@@ -9,7 +9,15 @@
 <title>Sproute Dashboard</title>
 </head>
 <body>
-<h1>Sproute Dashboard</h1>
+
+<div class="top">
+	{{ if session.user }}
+		Logged in as <strong>{{session.user.name}}</strong>
+		<a href="/api/logout?goto=/">Logout</a>
+	{{ / }}
+</div>
+
+<h1><a href="/admin">Sproute Dashboard</a></h1>
 
 <h2>New</h2>
 <ul>
@@ -38,6 +46,7 @@
 {{ asset /admin/assets/src/Route.js }}
 {{ asset /admin/assets/src/Config.js }}
 {{ asset /admin/assets/src/Permission.js }}
+{{ asset /admin/assets/src/Template.js }}
 
 </body>
 </html>

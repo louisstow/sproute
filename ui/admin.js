@@ -1,6 +1,7 @@
 var fs = require("fs");
 var ff = require("ff");
 var path = require("path");
+var wrench = require("wrench");
 
 var allowedKeys = [
 	'name',
@@ -25,17 +26,67 @@ var Admin = {
 
 	setupRoutes: function (app) {
 		app.server.get("/admin/*", function (req, res, next) {
-			console.log(req.path)
-			console.log("MUST BE AN ADMIN")
+			if (!req.session || !req.session.user || req.session.user.role != "admin") {
+				return res.json(500, [{message: "You must be admin"}]);
+			}
 
 			next();
 		});
 
 		app.server.get("/admin/views", function (req, res) {
-			ff(function () {
-				fs.readdir(path.join(app.dir, app.config.views), this.slot())
-			}).cb(function (err, dirs) {
-				res.json(dirs);
+			var dirs = wrench.readdirSyncRecursive(path.join(app.dir, app.config.views))
+			
+			//remove directories from list
+			for (var i = 0; i < dirs.length; ++i) {
+				if (dirs[i].indexOf(".") == -1) {
+					dirs.splice(i--, 1);
+				}
+			}
+
+			res.json(dirs);
+		});
+
+		app.server.post("/admin/template", function (req, res) {
+			var name = req.body.name;
+			var templatePath = path.join(app.dir, app.config.views, name);
+
+			var f = ff(this, function () {
+				fs.exists(templatePath, f.slotPlain());
+			}, function (exists) {
+				if (exists) {
+					return f.fail({error: "Template already exists."});
+				}
+
+				fs.mkdir(templatePath, f.slot());
+			}, function () {
+				fs.writeFile(path.join(templatePath, "header.sprt"), "", f.waitPlain());
+				fs.writeFile(path.join(templatePath, "footer.sprt"), "", f.waitPlain());
+			}, function () {
+				res.json("ok");
+			}).error(function (err) {
+				res.json(500, err);
+			});
+		});
+
+		app.server.delete("/admin/template", function (req, res) {
+			var name = req.body.name;
+			var templatePath = path.join(app.dir, app.config.views, name);
+
+			var f = ff(this, function () {
+				fs.exists(templatePath, f.slotPlain());
+			}, function (exists) {
+				if (!exists) {
+					return f.fail();
+				}
+
+				fs.unlink(path.join(templatePath, "header.sprt"), f.waitPlain());
+				fs.unlink(path.join(templatePath, "footer.sprt"), f.waitPlain());
+			}, function () {
+				fs.rmdir(templatePath, f.slot())
+			}, function () {
+				res.json("ok");
+			}).error(function (err) {
+				res.json(500, err);
 			});
 		});
 
@@ -173,7 +224,7 @@ var Admin = {
 			}
 
 			fs.writeFileSync(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
-			
+
 			res.json("ok");
 			app.reload();
 		});

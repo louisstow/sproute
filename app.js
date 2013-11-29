@@ -32,8 +32,9 @@ function App (dir, opts) {
 
 	this.loadConfig();
 
-	if (opts.loadServer !== false)
+	if (opts.loadServer !== false) {
 		this.server = this.loadServer(opts);
+	}
 
 	if (opts.loadModel !== false)
 		this.loadModel();
@@ -120,9 +121,18 @@ App.prototype = {
 	* the config data.
 	*/
 	loadServer: function (opts) {
-		var server = express();
+
+		var server;
 		var secret = this.config.secret || (this.config.secret = (Math.random() * 10000000 | 0).toString(16));
 		var self = this;
+
+		if (opts.reload) {
+			server = this.server;
+			server.routes = {'get': [], 'post': [], 'delete': []};
+			server._router.map = {};
+		} else {
+			server = express();
+		}
 
 		// gracefully handle many requests
 		if (this.config.strict) {
@@ -834,7 +844,7 @@ App.prototype = {
 
 			//log to the server
 			console.error("-----------");
-			console.error("Error occured during %s %s", req.method.toUpperCase(), req.url)
+			console.error("Error occured during %s %s", req.method && req.method.toUpperCase(), req.url)
 			if (self.config.showError) {
 				console.error(err);
 				if (err.stack) console.error(err.stack);
@@ -859,28 +869,12 @@ App.prototype = {
 	},
 
 	reload: function () {
-		console.log("--- Closing Server ---");
+		console.log("\n\n**** RESTARTING ****\n\n");
 
-
-		setTimeout(function () {	
-			this._restarting = true;
-
-			// once all open sockets have ended
-			// destroy the sockets and clear the cache
-			for (var i = 0; i < this._sockets.length; ++i) {
-				console.log("Destroy socket #" + i);
-				this._sockets[i].destroy();
-			}
-
-			this._sockets.length = 0;
-		
-			// close the HTTP server and create a new one
-			this.server.http.close(function () {
-				console.log("Call constructor");
-				App.call(this, this.dir, this.opts);	
-			}.bind(this));
-
-		}.bind(this), 3000);
+		this._restarting = true;		
+		this.opts.listen = false;
+		this.opts.reload = true;
+		App.call(this, this.dir, this.opts);
 	}
 };
 

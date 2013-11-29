@@ -72,7 +72,7 @@ var RouteController = Spineless.View.extend({
 			this.addChild(new Route({
 				superview: this.routeList,
 				route: this.model.route,
-				name: this.model.view,
+				name: this.model.name,
 				views: this.views
 			}));
 		});

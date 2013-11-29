@@ -62,7 +62,7 @@ var PageController = Spineless.View.extend({
 	},
 
 	onSelect: function (view) {
-		var id = this.sync("get", "/admin/views/" + view);
+		var id = this.sync("get", "/admin/views/" + encodeURIComponent(view));
 		this.set("name", view);
 
 		this.on("sync:" + id, function (resp) {
@@ -91,7 +91,7 @@ var Page = Spineless.View.extend({
 	},
 
 	onCancel: function () {
-		var id = this.delete("/admin/views/" + this.model.name);
+		var id = this.delete("/admin/views/" + encodeURIComponent(this.model.name));
 		this.once(id, this.removeFromParent);
 	},
 

@@ -262,7 +262,7 @@ Greenhouse.prototype.tokenize = function (template) {
 
                 token.type = types.CONDITION;
                 token.negate = expression.indexOf("unless") == 0;
-                token.expr = expression.substr(3);
+                token.expr = expression.split(" ").slice(1).join(" ");
                 token.startTrue = idx + 2;
                 token.start = openTag - 1;
                 
@@ -500,7 +500,7 @@ Greenhouse.prototype.process = function (template, adt, gnext) {
                     else { this.start = block.endTrue; }
                     next();
                 };
-
+                
                 if (block.negate) {
                     result = !result;
                 }

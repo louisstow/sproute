@@ -1,5 +1,5 @@
-echo $MY_PATH
-echo $0
+#!/bin/sh
+
 WD="$(pwd)"
 
 case "$1" in
@@ -30,8 +30,27 @@ case "$1" in
 		exit 1
 	fi
 
-	rm /usr/local/bin/sproute
+	rm -f /usr/local/bin/sproute
 	ln -s $MY_PATH/sproute.sh /usr/local/bin/sproute
+	;;
+
+"admin")
+	read -p "Username: " username
+	read -s -p "Password: " password
+
+	echo "
+		var app = require(\"./sproute/app\");
+		a = new app(__dirname, {listen: false});
+
+		a.register({
+			session: app.adminSession,
+			body: {
+				name: \"$username\",
+				pass: \"$password\",
+				role: \"admin\"
+			}
+		}, {json: function(){ console.error(arguments); process.exit(0); }});
+	" | node >/dev/null;
 	;;
 
 esac
