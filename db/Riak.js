@@ -45,12 +45,39 @@ var Riak = Interface.extend({
 		var f = ff(this, function () {
 			if (conditions._id) {
 				this.connection.get(this.bucket, getKey(table, conditions._id), {}, f.slot())
+			} else if (!Object.keys(conditions).length) {
+				var f2 = ff(this, function () {
+					this.connection.get(this.bucket, getKey(table, "all"), {}, f2.slot());
+				}, function (keys) {
+					// get all keys in table
+					var g = f2.group();
+
+					for (var i = 0; i < keys.length; ++i) {
+						this.connection.get(this.bucket, getKey(table, keys[i]), {}, g());
+					}
+				}, function (results) {
+					// convery to JSON
+					for (var i = 0; i < results.length; ++i) {
+						try {
+							results[i] = JSON.parse(results[i]);
+						} catch (err) {
+							results.splice(i--, 1);
+						}
+					}
+					
+					f2.pass(results);
+				}).cb(f.slot());
 			} else {
 				this.connection.query(this.bucket, conditions, {}, f.slot());
 			}
 		}, function (results) {
 			// transform an array of keys
 			if (Array.isArray(results)) {
+				// must not be an array of keys
+				if (typeof results[0] !== "string") {
+					return f.succeed(results);
+				}
+
 				var g = f.group();
 				for (var i = 0; i < results.length; ++i) {
 					this.connection.get(this.bucket, results[i], g());
@@ -105,7 +132,23 @@ var Riak = Interface.extend({
 	},
 
 	write: function (table, data, next) {
-		if (!data._id) { data._id = getUUID(); }
+		// no ID means create a new document
+		if (!data._id) { 
+			data._id = getUUID();
+			this.connection.get(this.bucket, getKey(table, "all"), {}, function (err, list) {
+				if (err) {
+					list = [];
+				}
+
+				list.push(data._id);
+
+				this.connection.save(
+					this.bucket, 
+					getKey(table, "all"), 
+					list
+				);
+			}.bind(this));
+		}
 
 		var f = ff(this, function () {
 			var g = f.group();
@@ -122,6 +165,7 @@ var Riak = Interface.extend({
 			// make sure no results were found
 			for (var i = 0; i < check.length; ++i) {
 				if (check[i] && check[i].length) {
+					console.error("Unique constraint voilated")
 					f.fail([{message: "Unique constraint violation"}])
 				}
 			}
