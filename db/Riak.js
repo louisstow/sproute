@@ -12,7 +12,6 @@ function getUUID () {
 }
 /**
 * TODO
-* - Get all in collection
 * - IN query filter
 */
 
@@ -53,7 +52,11 @@ var Riak = Interface.extend({
 					var g = f2.group();
 
 					for (var i = 0; i < keys.length; ++i) {
-						this.connection.get(this.bucket, getKey(table, keys[i]), {}, g());
+						var lg = g();
+						this.connection.get(this.bucket, getKey(table, keys[i]), {}, function (err, item) {
+							if (err) lg();
+							else lg(null, item);
+						});
 					}
 				}, function (results) {
 					// convery to JSON
@@ -64,7 +67,7 @@ var Riak = Interface.extend({
 							results.splice(i--, 1);
 						}
 					}
-					
+
 					f2.pass(results);
 				}).cb(f.slot());
 			} else {
@@ -162,11 +165,13 @@ var Riak = Interface.extend({
 				}
 			}
 		}, function (check) {
-			// make sure no results were found
-			for (var i = 0; i < check.length; ++i) {
-				if (check[i] && check[i].length) {
-					console.error("Unique constraint voilated")
-					f.fail([{message: "Unique constraint violation"}])
+			if (check) {
+				// make sure no results were found
+				for (var i = 0; i < check.length; ++i) {
+					if (check[i] && check[i].length) {
+						console.error("Unique constraint voilated")
+						f.fail([{message: "Unique constraint violation"}])
+					}
 				}
 			}
 
@@ -202,7 +207,8 @@ var Riak = Interface.extend({
 	remove: function (table, conditions, next) {
 		var f = ff(this, function () {
 			this.read(table, conditions, {}, f.slot());
-		}, function (results) {
+			this.connection.get(this.bucket, getKey(table, "all"), f.slot());
+		}, function (results, all) {
 			var g = f.group();
 
 			for (var i = 0; i < results.length; ++i) {
@@ -211,7 +217,16 @@ var Riak = Interface.extend({
 					getKey(table, results[i]._id),
 					g()
 				);
+
+				// remove from the all index
+				var idx = all.indexOf(results[i]._id);
+				if (idx !== -1) {
+					all.splice(idx, 1);
+				}
 			}
+
+			// save the all index
+			this.connection.write(this.bucket, getKey(table, "all"), all);
 		}).cb(next);
 	},
 

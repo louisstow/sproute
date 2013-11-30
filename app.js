@@ -30,45 +30,53 @@ function App (dir, opts) {
 	this._remoteAddrs = {};
 	this._sockets = [];
 
-	this.loadConfig();
+	var f = ff(this, function () {
+		this.loadConfig(f.slot());
+	}, function () {
+		if (opts.loadServer !== false) {
+			this.loadServer(opts, f.slot());
+		}
+	}, function () {
+		if (opts.loadModel !== false)
+			this.loadModel(f.slot());
+	}, function () {
+		if (opts.loadPermissions !== false)
+			this.loadPermissions(f.slot());
+	}, function () {
+		if (opts.loadController !== false)
+			this.loadController(f.slot());
+	}, function () {
+		if (opts.loadViews !== false)
+			this.loadHook(f.slot());
+	}, function () {
+		if (opts.loadViews !== false) {
+			if (this.config.showAdmin) {
+				this.initRoute("/admin", path.join(__dirname, "ui/views/dashboard"));
+				this.initRoute("/admin/login", path.join(__dirname, "ui/views/login"));
+			}
 
-	if (opts.loadServer !== false) {
-		this.server = this.loadServer(opts);
-	}
-
-	if (opts.loadModel !== false)
-		this.loadModel();
-
-	if (opts.loadPermissions !== false)
-		this.loadPermissions();
-
-	if (opts.loadController !== false)
-		this.loadController();
-
-	if (opts.loadViews !== false) {
-		this.loadHook();
-
+			for (var route in this.controller) {
+				this.initRoute(route, path.join(this.dir, this.config.views, this.controller[route]));
+			}
+		}
+	
+		if (opts.loadController !== false)
+			this.loadREST(f.slot());
+	}, function () {
+		if (opts.loadMailer !== false)
+			this.loadMailer(f.slot());
+	}, function () {
 		if (this.config.showAdmin) {
-			this.initRoute("/admin", path.join(__dirname, "ui/views/dashboard"));
-			this.initRoute("/admin/login", path.join(__dirname, "ui/views/login"));
+			require("./ui/admin").init(this);
 		}
 
-		for (var route in this.controller) {
-			this.initRoute(route, path.join(this.dir, this.config.views, this.controller[route]));
-		}
-	}
-
-	if (opts.loadController !== false)
-		this.loadREST();
-
-	if (opts.loadMailer !== false)
-		this.loadMailer();
-
-	if (this.config.showAdmin) {
-		require("./ui/admin").init(this);
-	}
-
-	this._restarting = false;
+		this._restarting = false;
+	}).error(function (err) {
+		console.error("Error in Sproute");
+		console.error(err);
+		console.error(err.stack);
+		process.exit(1);
+	});
 }
 
 App.prototype = {
@@ -76,7 +84,7 @@ App.prototype = {
 	* Load the configuration data. Must exist in a file
 	* called "config" and be valid JSON.
 	*/
-	loadConfig: function () {
+	loadConfig: function (next) {
 		this.config = {
 			"models": "models",
 			"views": "views",
@@ -100,27 +108,31 @@ App.prototype = {
 			"reCAPTCHA": false
 		};
 
-		try {
-			var c = JSON.parse(fs.readFileSync(path.join(this.dir, "config.json")));
-			_.extend(this.config, c);
-		} catch (e) {
-			console.error("Error loading config");
-			console.error(e, e.stack);
-		}
+		var f = ff(this, function () {
+			fs.readFile(path.join(this.dir, "config.json"), f.slot())
+		}, function (file) {
+			try {
+				var c = JSON.parse(file.toString());
+				_.extend(this.config, c);
+			} catch (e) {
+				console.error("Error loading config");
+				console.error(e, e.stack);
+			}	
 
-		if (!this.config.name) {
-			console.error("You must include a `name` parameter in your config.json file");
-			process.exit(1);
-		}
+			if (!this.config.name) {
+				console.error("You must include a `name` parameter in your config.json file");
+				process.exit(1);
+			}
 
-		this.name = this.config.name;
+			this.name = this.config.name;
+		}).cb(next);
 	},
 
 	/**
 	* Configure the Express server from
 	* the config data.
 	*/
-	loadServer: function (opts) {
+	loadServer: function (opts, next) {
 
 		var server;
 		var secret = this.config.secret || (this.config.secret = (Math.random() * 10000000 | 0).toString(16));
@@ -206,62 +218,89 @@ App.prototype = {
 		    }.bind(this));
 		}
 
-	    return server;
+		this.server = server;
+		next();
 	},
 
 	/**
 	* Load the controller JSON file.
 	*/
-	loadController: function () {
+	loadController: function (next) {
 		var controllerPath = path.join(this.dir, this.config.controller);
 
-		try {
-			console.log(this.config, this.dir)
-			this.controller = JSON.parse(fs.readFileSync(controllerPath));
-		} catch (e) {
-			console.error("Controller at path: `" + controllerPath + "` not found.");
-			process.exit(1);
-		}
+		var f = ff(this, function () {
+			fs.readFile(controllerPath, f.slot());
+		}, function (file) {
+			try {
+				this.controller = JSON.parse(file.toString());
+			} catch (e) {
+				console.error("Controller at path: `" + controllerPath + "` not found.");
+				process.exit(1);
+			}
+		}).cb(next);
 	},
 
 	/**
 	* Load the model structures and initialise
 	* the storage instance for this app.
 	*/
-	loadModel: function () {
+	loadModel: function (next) {
 		var modelPath = path.join(this.dir, this.config.models);
-		
-		// models are not mandatory so warn in the log
-		if (!fs.existsSync(modelPath)) {
-			console.warn("Models at path `" + modelPath + "` does not exist")
-			return;
-		}
-
-		var files = fs.readdirSync(modelPath);
 		var structure = {};
 
-		for (var i = 0; i < files.length; ++i) {
-			var file = files[i];
-			var table = file.split(".")[0];
-			if (!table) { continue; }
-
-			try {
-				structure[table] = JSON.parse(fs.readFileSync(path.join(modelPath, file)).toString());
-			} catch (e) {
-				console.error("Error parsing model `%s`", table);
-				process.exit(1);
+		// models are not mandatory so warn in the log
+		var f = ff(this, function () {
+			fs.exists(modelPath, f.slotPlain());
+		}, function (exists) {
+			if (!exists) {
+				console.warn("Models at path `" + modelPath + "` does not exist")
+				return;
 			}
-		}
 
-		var storage = new Storage({
-			name: this.name, 
-			schema: structure,
-			config: this.config,
-			dir: this.dir
-		});
+			fs.readdir(modelPath, f.slot());
+		}, function (files) {
+			
+			f.pass(files);
+			var g = f.group();
 
-		this.structure = structure;
-		this.storage = storage;
+			for (var i = 0; i < files.length; ++i) {
+				var file = files[i];
+				var table = file.split(".")[0];
+
+				if (!table) { continue; }
+
+				fs.readFile(path.join(modelPath, file), g());
+			}
+
+		}, function (files, contents) {
+			for (var i = 0; i < files.length; ++i) {
+				var file = files[i].toString();
+				var table = file.split(".")[0];
+
+				if (table == "") {
+					files.splice(i--, 1);
+					continue; 
+				}
+
+				try {
+					console.log(table)
+					structure[table] = JSON.parse(contents[i].toString());
+				} catch (e) {
+					console.error("Error parsing model `%s`", table);
+					process.exit(1);
+				}
+			}
+		
+			var storage = new Storage({
+				name: this.name, 
+				schema: structure,
+				config: this.config,
+				dir: this.dir
+			});
+
+			this.structure = structure;
+			this.storage = storage;
+		}).cb(next);
 	},
 
 	/**
@@ -270,62 +309,66 @@ App.prototype = {
 	* permission before passing to the next
 	* route handler.
 	*/
-	loadPermissions: function () {
+	loadPermissions: function (next) {
 		var permissionsPath = path.join(this.dir, "permissions.json");
 
-		try {
-			this.permissions = JSON.parse(fs.readFileSync(permissionsPath));
-		} catch (e) {
-			console.error("permissions at path: [" + permissionsPath + "] not found.");
-			console.error(e);
-			console.error(e.stack);
-		}
+		var f = ff(this, function () {
+			fs.readFile(permissionsPath, f.slot())
+		}, function (perms) {
+			try {
+				this.permissions = JSON.parse(perms);
+			} catch (e) {
+				console.error("permissions at path: [" + permissionsPath + "] not found.");
+				console.error(e);
+				console.error(e.stack);
+			}
 
-		//loop over the urls in permissions
-		Object.keys(this.permissions).forEach(function (url) {
-			var parts = url.split(" ");
-			var method = parts[0].toLowerCase();
-			var route = parts[1];
-			var user = this.permissions[url];
+			//loop over the urls in permissions
+			Object.keys(this.permissions).forEach(function (url) {
+				var parts = url.split(" ");
+				var method = parts[0].toLowerCase();
+				var route = parts[1];
+				var user = this.permissions[url];
 
-			var self = this;
+				var self = this;
 
-			this.server[method](route, function (req, res, next) {
-				console.log("PERMISSION", method, route, user);
-				var flag = false;
+				this.server[method](route, function (req, res, next) {
+					console.log("PERMISSION", method, route, user);
+					var flag = false;
 
-				//save the required permission and pass it on
-				req.permission = user;
+					//save the required permission and pass it on
+					req.permission = user;
 
-				//stranger must NOT be logged in
-				if (user === "stranger") {
-					if (req.session && req.session.user) {
-						flag = true;
+					//stranger must NOT be logged in
+					if (user === "stranger") {
+						if (req.session && req.session.user) {
+							flag = true;
+						}
 					}
-				}
-				//member or owner must be logged in
-				//owner is handled further in the process
-				else if (user === "member" || user === "owner") {
-					if (!req.session.user) {
-						flag = true;
+					//member or owner must be logged in
+					//owner is handled further in the process
+					else if (user === "member" || user === "owner") {
+						if (!req.session.user) {
+							flag = true;
+						}
 					}
-				}
-				//no restriction
-				else if (user === "anyone") {
-					flag = false;
-				}
-				//custom roles
-				else {
-					var role = req.session.user && req.session.user.role || "stranger";
-					flag = !self.storage.inheritRole(role, user);
-				}
+					//no restriction
+					else if (user === "anyone") {
+						flag = false;
+					}
+					//custom roles
+					else {
+						var role = req.session.user && req.session.user.role || "stranger";
+						flag = !self.storage.inheritRole(role, user);
+					}
 
-				if (flag) {
-					return res.json(ERROR_CODE, [{message: "You do not have permission to complete this action."}])
-				} else next();
-			});
-			
-		}.bind(this));
+					if (flag) {
+						return res.json(ERROR_CODE, [{message: "You do not have permission to complete this action."}])
+					} else next();
+				});
+				
+			}.bind(this));
+		}).cb(next);
 	},
 
 	loadView: function (view, next) {
@@ -430,7 +473,7 @@ App.prototype = {
 	* Setup hooks into the template parser to
 	* return data from the storage engine.
 	*/
-	loadHook: function () {
+	loadHook: function (next) {
 		var app = this;
 		this.hooks = {
 			get: function (block, next) {
@@ -483,28 +526,33 @@ App.prototype = {
 
 		//scan plugins directory
 		var pluginPath = path.join(__dirname, "plugins");
-		if (!fs.existsSync(pluginPath)) {
-			return;
-		}
+		var f = ff(this, function () {
+			fs.exists(pluginPath, f.slotPlain());
+		}, function (exists) {
+			if (!exists) {
+				return this.succeed();
+			}
 
-		var files = fs.readdirSync(pluginPath);
-		for (var i = 0; i < files.length; ++i) {
-			var file = files[i];
-			var table = file.split(".")[0];
+			fs.readdir(pluginPath, f.slot());
+		}, function (files) {
+			for (var i = 0; i < files.length; ++i) {
+				var file = files[i];
+				var table = file.split(".")[0];
 
-			//require the JS file
-			var hooks = require(path.join(pluginPath, file));
-			console.log("LOAD HOOK", path.join(pluginPath, file), Object.keys(hooks))
-			//extend the main hook object
-			_.extend(this.hooks, hooks);
-		}
+				//require the JS file
+				var hooks = require(path.join(pluginPath, file));
+				console.log("LOAD HOOK", path.join(pluginPath, file), Object.keys(hooks))
+				//extend the main hook object
+				_.extend(this.hooks, hooks);
+			}
+		}).cb(next);
 	},
 
 	/**
 	* Setup the endpoints for the REST interface
 	* to the model.
 	*/
-	loadREST: function () {
+	loadREST: function (next) {
 		//don't use the default REST api for creating a user
 		this.server.post(/\/data\/users\/?$/, this.register.bind(this));
 
@@ -521,13 +569,17 @@ App.prototype = {
 		this.server.get("/api/logout", this.logout.bind(this));
 		this.server.get("/api/recover", this.recover.bind(this));
 		this.server.post("/api/register", this.register.bind(this));
+
+		next();
 	},
 
-	loadMailer: function () {
+	loadMailer: function (next) {
 		this.mailer = nodemailer.createTransport(
 			this.config.mailer.type,
 			"/usr/sbin/sendmail"
 		);
+
+		next()
 	},
 
 	/**
