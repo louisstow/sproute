@@ -54,7 +54,7 @@ var Admin = {
 				fs.exists(templatePath, f.slotPlain());
 			}, function (exists) {
 				if (exists) {
-					return f.fail({error: "Template already exists."});
+					return f.fail([{error: "Template already exists."}]);
 				}
 
 				fs.mkdir(templatePath, f.slot());
@@ -123,10 +123,11 @@ var Admin = {
 		app.server.post("/admin/views", function (req, res) {
 			console.log(app.dir, app.config.views, req.body.name + ".sprt")
 			var p = path.join(app.dir, app.config.views, req.body.name + ".sprt");
-			fs.writeFileSync(p, req.body.content);
-
-			res.json("ok");
-			app.reload();
+			
+			fs.writeFile(p, req.body.content, function () {
+				res.json("ok");
+				app.reload();	
+			});
 		});
 
 		app.server.delete("/admin/views/:name", function (req, res) {
@@ -157,11 +158,10 @@ var Admin = {
 			app.structure[name] = d;
 
 			var p = path.join(app.dir, app.config.models, req.body.name + ".json");
-			fs.writeFileSync(p, JSON.stringify(d, null, '\t'));
-			
-			
-			res.json("ok");
-			app.reload();
+			fs.writeFile(p, JSON.stringify(d, null, '\t'), function () {
+				res.json("ok");
+				app.reload();
+			});
 		});
 
 		app.server.delete("/admin/models/:name", function (req, res) {
@@ -189,10 +189,10 @@ var Admin = {
 				app.config[key] = c[key];
 			}
 
-			fs.writeFileSync(path.join(app.dir, "config.json"), JSON.stringify(app.config, null, '\t'));
-
-			res.json("ok");
-			app.reload();
+			fs.writeFile(path.join(app.dir, "config.json"), JSON.stringify(app.config, null, '\t'), function () {
+				res.json("ok");
+				app.reload();	
+			});
 		});
 
 		app.server.post("/admin/permissions", function (req, res) {
@@ -201,20 +201,21 @@ var Admin = {
 				app.permissions[key] = c[key];
 			}
 
-			fs.writeFileSync(path.join(app.dir, "permissions.json"), JSON.stringify(app.permissions, null, '\t'));
-
-			res.json("ok");
-			app.reload();
+			fs.writeFile(path.join(app.dir, "permissions.json"), JSON.stringify(app.permissions, null, '\t'), function () {
+				res.json("ok");
+				app.reload();	
+			});
 		});
 
 		app.server.delete("/admin/permissions", function (req, res) {
 			var c = req.body;
 			console.log(c)
 			delete app.permissions[c.route];
-			fs.writeFileSync(path.join(app.dir, "permissions.json"), JSON.stringify(app.permissions, null, '\t'));
-
-			res.json("ok");
-			app.reload();
+			
+			fs.writeFile(path.join(app.dir, "permissions.json"), JSON.stringify(app.permissions, null, '\t'), function () {
+				res.json("ok");
+				app.reload();	
+			});
 		});
 
 		app.server.post("/admin/controller", function (req, res) {
@@ -223,21 +224,21 @@ var Admin = {
 				app.controller[key] = c[key];
 			}
 
-			fs.writeFileSync(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
-
-			res.json("ok");
-			app.reload();
+			fs.writeFile(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'), function () {
+				res.json("ok");
+				app.reload();				
+			});
 		});
 
 		app.server.delete("/admin/controller", function (req, res) {
 			var c = req.body;
 			console.log(c)
 			delete app.controller[c.route];
-			fs.writeFileSync(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'));
-
-			res.json("ok");
-
-			app.reload();
+			
+			fs.writeFile(path.join(app.dir, "controller.json"), JSON.stringify(app.controller, null, '\t'), function () {
+				res.json("ok");
+				app.reload();				
+			});
 		});
 	}
 };
