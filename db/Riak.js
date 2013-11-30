@@ -12,7 +12,6 @@ function getUUID () {
 }
 /**
 * TODO
-* - Unique constraints
 * - Get all in collection
 * - IN query filter
 */
@@ -34,6 +33,8 @@ var Riak = Interface.extend({
 				this.indexes[table][key] = true;
 			}
 		}
+
+		console.log(this.indexes)
 	},
 
 	createIndex: function (table, fields, config, next) {
@@ -58,8 +59,9 @@ var Riak = Interface.extend({
 				f.succeed([results]);
 			}
 		}, function (results) {
-			if (!Array.isArray(results)) {
-				results = Array.prototype.slice.call(arguments, 0);
+			// exit early with no results
+			if (!results) {
+				return f.succeed([]);
 			}
 
 			if (options.limit) {
@@ -68,7 +70,12 @@ var Riak = Interface.extend({
 
 			// transform back to JSON
 			for (var i = 0; i < results.length; ++i) {
-				results[i] = JSON.parse(results[i]);
+				try {
+					results[i] = JSON.parse(results[i]);
+				} catch (err) {
+					results.splice(i--, 1);
+					continue;
+				}
 
 				// do further filtering
 				for (var key in conditions) {
@@ -94,20 +101,31 @@ var Riak = Interface.extend({
 			}
 			
 			f.pass(results);
-			console.log("results", results)
 		}).cb(next)
 	},
 
 	write: function (table, data, next) {
 		if (!data._id) { data._id = getUUID(); }
 
-		for (var key in data) {
-			if (this.indexes[table][key]) {
-				console.log("UNIQUE INDEX", table, key)
-			}
-		}
-
 		var f = ff(this, function () {
+			var g = f.group();
+
+			for (var key in data) {
+				if (this.indexes[table][key]) {
+					// make sure no results
+					var q = {};
+					q[key] = data[key];
+					this.read(table, q, {}, g());
+				}
+			}
+		}, function (check) {
+			// make sure no results were found
+			for (var i = 0; i < check.length; ++i) {
+				if (check[i] && check[i].length) {
+					f.fail([{message: "Unique constraint violation"}])
+				}
+			}
+
 			this.connection.save(
 				this.bucket, 
 				getKey(table, data._id), // generate key
