@@ -34,6 +34,23 @@ case "$1" in
 	ln -s $MY_PATH/sproute.sh /usr/local/bin/sproute
 	;;
 
+"console")
+	echo "
+		var repl = require(\"repl\");
+		var App = require(\"./sproute/app\");
+
+		var app = new App(__dirname, {listen: false});
+
+		var sproute = repl.start({
+			prompt: \"App (\"+app.config.name+\"): \",
+			input: process.stdin,
+			output: process.stdout
+		});
+
+		sproute.context.app = app;
+	" | node;
+	;;
+
 "admin")
 	read -p "Username: " username
 	read -s -p "Password: " password
