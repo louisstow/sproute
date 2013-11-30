@@ -10,17 +10,30 @@ function getKey () {
 function getUUID () {
 	return (Math.random() * 100000).toString(36).replace(".", "");
 }
+/**
+* TODO
+* - Unique constraints
+* - Get all in collection
+* - IN query filter
+*/
 
 var Riak = Interface.extend({
 	open: function (config, next) {
 		this.bucket = config.name;
 		this.connection = riak.getClient();
-		console.log(this.connection)
+		this.indexes = {};
+
 		next();
 	},
 
 	createTable: function (table, fields, next) {
-		
+		this.indexes[table] = {};
+
+		for (var key in fields) {
+			if (fields[key].unique) {
+				this.indexes[table][key] = true;
+			}
+		}
 	},
 
 	createIndex: function (table, fields, config, next) {
@@ -86,7 +99,13 @@ var Riak = Interface.extend({
 	},
 
 	write: function (table, data, next) {
-		data._id = getUUID();
+		if (!data._id) { data._id = getUUID(); }
+
+		for (var key in data) {
+			if (this.indexes[table][key]) {
+				console.log("UNIQUE INDEX", table, key)
+			}
+		}
 
 		var f = ff(this, function () {
 			this.connection.save(
@@ -98,19 +117,56 @@ var Riak = Interface.extend({
 			);
 		}, function (results) {
 			console.log("Write", results)
+			f.pass(results);
 		}).cb(next)
 	},
 
 	modify: function (table, conditions, data, next) {
+		var f = ff(this, function () {
+			this.read(table, conditions, {}, f.slot());
+		}, function (results) {
+			var g = f.group();
 
+			for (var i = 0; i < results.length; ++i) {
+				for (var key in data) {
+					results[i][key] = data[key];
+				}
+
+				this.write(table, results[i], g())
+			}
+		}).cb(next);
 	},
 
 	remove: function (table, conditions, next) {
-		
+		var f = ff(this, function () {
+			this.read(table, conditions, {}, f.slot());
+		}, function (results) {
+			var g = f.group();
+
+			for (var i = 0; i < results.length; ++i) {
+				this.connection.remove(
+					this.bucket,
+					getKey(table, results[i]._id),
+					g()
+				);
+			}
+		}).cb(next);
 	},
 
 	increment: function (table, conditions, data, next) {
+		var f = ff(this, function () {
+			this.read(table, conditions, {}, f.slot());
+		}, function (results) {
+			var g = f.group();
 
+			for (var i = 0; i < results.length; ++i) {
+				for (var key in data) {
+					results[i][key] = results[i][key] + data[key];
+				}
+
+				this.write(table, results[i], g())
+			}
+		}).cb(next);
 	}
 });
 
