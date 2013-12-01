@@ -1,7 +1,6 @@
 var fs = require("fs");
 var ff = require("ff");
 var path = require("path");
-var wrench = require("wrench");
 
 var allowedKeys = [
 	'name',
@@ -19,6 +18,37 @@ var allowedKeys = [
 	'rateLimit'
 ];
 
+if (!fs.readdirRecursive) {
+	fs.readdirRecursive = function (dir, next) {
+		var f = ff(this, function () {
+			fs.readdir(dir, f.slot());
+		}, function (files) {
+			f.pass(files);
+			var group = f.group();
+
+			for (var i = 0; i < files.length; ++i) {
+				if (files[i].indexOf(".") == -1) {
+					// wtf
+					//group()(null, files[i]);
+					fs.readdir(path.join(dir, files[i]), group());
+				}
+			}
+		}, function (files, subfiles) {
+			// move subfiles into files
+			var j = 0;
+			for (var i = 0; i < files.length; ++i) {
+				if (files[i].indexOf(".") == -1) {
+					files = files.concat(subfiles[j++].map(function (x) {
+						return files[i] + '/' + x;
+					}));
+				}
+			}
+
+			f.pass(files);
+		}).cb(next);
+	};
+}
+
 var Admin = {
 	init: function (app) {
 		this.setupRoutes(app);
@@ -34,16 +64,18 @@ var Admin = {
 		});
 
 		app.server.get("/admin/views", function (req, res) {
-			var dirs = wrench.readdirSyncRecursive(path.join(app.dir, app.config.views))
-			
-			//remove directories from list
-			for (var i = 0; i < dirs.length; ++i) {
-				if (dirs[i].indexOf(".") == -1) {
-					dirs.splice(i--, 1);
+			var f = ff(this, function () {
+				fs.readdirRecursive(path.join(app.dir, app.config.views), f.slot())
+			}, function (dirs) {
+				//remove directories from list
+				for (var i = 0; i < dirs.length; ++i) {
+					if (dirs[i].indexOf(".") == -1) {
+						dirs.splice(i--, 1);
+					}
 				}
-			}
 
-			res.json(dirs);
+				res.json(dirs);
+			});
 		});
 
 		app.server.post("/admin/template", function (req, res) {

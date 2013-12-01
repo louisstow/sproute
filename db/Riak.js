@@ -52,11 +52,13 @@ var Riak = Interface.extend({
 					var g = f2.group();
 
 					for (var i = 0; i < keys.length; ++i) {
-						var lg = g();
-						this.connection.get(this.bucket, getKey(table, keys[i]), {}, function (err, item) {
-							if (err) lg();
-							else lg(null, item);
-						});
+						(function (key, group) {
+							console.log(typeof group)
+							this.connection.get(this.bucket, getKey(table, key), {}, function (err, item) {
+								if (err) group(null);
+								else group(null, item);
+							});
+						}.bind(this))(keys[i], g());
 					}
 				}, function (results) {
 					// convery to JSON
